@@ -15,12 +15,16 @@ from metrics import evaluate
 
 generator = "marginal_distributions"
 hparams = {}
-cv_folds = 2
+cv_folds = 10
 n_init = 1
-random_state = 0
-enable_reproducible_results(random_state)
+seed = 0
+enable_reproducible_results(seed)
 results = {}
-metrics = ["js", "wasserstein", "precision-recall", "authenticity", "domias"]
+metrics = [
+    "mmd",
+    "wasserstein",
+    # "precision-recall", "authenticity", "domias"
+]
 
 # ---------------------------------
 # START BENCHMARKING
@@ -28,13 +32,14 @@ metrics = ["js", "wasserstein", "precision-recall", "authenticity", "domias"]
 # load data
 dataset = openml.datasets.get_dataset("Diabetes130US")
 X, _, _, _ = dataset.get_data(dataset_format="dataframe")
-X = X[:100]
+X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 
 # perform k fold CV
 time_start = time.perf_counter()
 for fold, (train, test) in enumerate(
-    KFold(n_splits=cv_folds, shuffle=True, random_state=random_state).split(X)
+    KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(X)
 ):
+    print(f"fold: {fold}")
     results[fold] = {}
     # get train-test data
     X_train = GenericDataLoader(data=X.iloc[train])
@@ -49,11 +54,14 @@ for fold, (train, test) in enumerate(
         X_syn = plugin.generate(len(test))
         # evaluation
         results[fold][i] = evaluate(
-            X_train.dataframe(), X_test.dataframe(), X_syn.dataframe(), metrics
+            X_train.dataframe(),
+            X_test.dataframe(),
+            X_syn.dataframe(),
+            metrics,
+            random_state=seed,  # we use the same random state for metrics across initializations
         )
 time_end = time.perf_counter()
 results["timer"] = time_end - time_start
-# final result dict is of form: {fold:{init:{metric:result}},timer:time}
 # save results
 if not os.path.exists("results"):
     os.makedirs("results")
