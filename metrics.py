@@ -1,8 +1,5 @@
 import pandas as pd
 from utils import preprocess_eval
-from sklearn.decomposition import PCA
-from scipy.stats import gaussian_kde
-from scipy.spatial.distance import jensenshannon
 import numpy as np
 import torch
 from geomloss import SamplesLoss

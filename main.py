@@ -38,8 +38,6 @@ X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 
 X = X[:1000]
 
-print(X)
-
 # perform k fold CV
 time_start = time.perf_counter()
 for fold, (train, test) in enumerate(

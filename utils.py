@@ -10,7 +10,7 @@ def preprocess_eval(
 ):
     """
     Perform preprocessing.
-    One hot encode low cardinality features, label-encode high cardinality features, and minmax scale s.t. range=[0,1].
+    One hot encode low cardinality features, label-encode high cardinality features, and minmax scale s.t. range=[0,1] for all data.
     """
     all_df = pd.concat([train, test, syn], ignore_index=True)
     all_df_ = []
