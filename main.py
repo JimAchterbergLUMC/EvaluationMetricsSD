@@ -13,9 +13,9 @@ from metrics import evaluate
 # ---------------------------------
 # BENCHMARK PARAMETERS
 
-generator = "marginal_distributions"
+generator = "arf"
 hparams = {}
-cv_folds = 10
+cv_folds = 2
 n_init = 1
 seed = 0
 enable_reproducible_results(seed)
@@ -23,7 +23,9 @@ results = {}
 metrics = [
     "mmd",
     "wasserstein",
-    # "precision-recall", "authenticity", "domias"
+    "precision-recall",
+    "authenticity",
+    # "domias"
 ]
 
 # ---------------------------------
@@ -33,6 +35,10 @@ metrics = [
 dataset = openml.datasets.get_dataset("Diabetes130US")
 X, _, _, _ = dataset.get_data(dataset_format="dataframe")
 X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+
+X = X[:1000]
+
+print(X)
 
 # perform k fold CV
 time_start = time.perf_counter()
