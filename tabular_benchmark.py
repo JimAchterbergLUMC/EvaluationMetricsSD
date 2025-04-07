@@ -66,8 +66,8 @@ for fold, (train, test) in enumerate(
         )
 time_end = time.perf_counter()
 results["timer"] = time_end - time_start
+
 # save results
-if not os.path.exists("results"):
-    os.makedirs("results")
-with open(f"results/{generator}.json", "w") as f:
+os.makedirs("results/benchmark", exist_ok=True)
+with open(f"results/benchmark/{generator}.json", "w") as f:
     json.dump(results, f, indent=4)

@@ -5,7 +5,7 @@ import pandas as pd
 
 # open json file
 generator = "arf"
-with open(f"results/{generator}.json", "r") as f:
+with open(f"results/benchmark/{generator}.json", "r") as f:
     data = json.load(f)
 
 # create df

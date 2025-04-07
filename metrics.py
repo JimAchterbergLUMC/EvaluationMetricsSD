@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from utils import preprocess_eval
 import numpy as np
 import torch
@@ -219,3 +220,9 @@ def DOMIAS(
     auc = roc_auc_score(Y_test, P_rel)
 
     return auc
+
+
+def report(train: pd.DataFrame, test: pd.DataFrame, syn: pd.DataFrame, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+
+    # compute evals and save as files in save_dir
