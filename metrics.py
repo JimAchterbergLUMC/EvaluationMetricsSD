@@ -9,6 +9,7 @@ from sklearn.neighbors import NearestNeighbors
 from umap.parametric_umap import ParametricUMAP
 from scipy.stats import gaussian_kde
 from sklearn.metrics import roc_auc_score
+from matplotlib import pyplot as plt
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -222,7 +223,113 @@ def DOMIAS(
     return auc
 
 
-def report(train: pd.DataFrame, test: pd.DataFrame, syn: pd.DataFrame, save_dir):
+def report(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    syn: pd.DataFrame,
+    save_dir: str,
+    random_state: int,
+):
     os.makedirs(save_dir, exist_ok=True)
 
     # compute evals and save as files in save_dir
+    # -------------------------------------------------------
+    # fidelity
+
+    # domain constraints
+    # - no diagnoses overlap in diag_1, diag_2, and diag_3, since they correspond to primary/secondary diagnoses
+    # - if change==No, then this is also true for every medication
+
+    # descriptive statistics (plots and correlations)
+    descriptive_statistics(test, syn, save_dir)
+
+    # Association Rule Mining
+
+    # Dimension Wise Prediction
+
+    # PCA
+
+    # tSNE
+
+    # -------------------------------------------------------
+    # privacy
+
+
+def descriptive_statistics(real: pd.DataFrame, syn: pd.DataFrame, save_dir: str):
+    os.makedirs(f"{save_dir}/descriptive_statistics", exist_ok=True)
+
+    for col in real.columns:
+        plt.figure(figsize=(8, 5))
+        try:
+            real[col] = real[col].astype(float)
+            if real[col].nunique() > 15:
+                # histograms for numericals with > 15 distinct values
+                _, bins, _ = plt.hist(real[col], color="blue", alpha=0.5, label="Real")
+                plt.hist(syn[col], color="red", alpha=0.5, label="Synthetic", bins=bins)
+            else:
+                # Bar plot for categorical or low-cardinality numerical data
+                real_counts = real[col].value_counts().sort_index()
+                syn_counts = syn[col].value_counts().sort_index()
+                all_indices = sorted(
+                    set(real_counts.index).union(set(syn_counts.index))
+                )
+
+                real_vals = [real_counts.get(i, 0) for i in all_indices]
+                syn_vals = [syn_counts.get(i, 0) for i in all_indices]
+
+                x = range(len(all_indices))
+                width = 0.4
+
+                plt.bar(
+                    [i - width / 2 for i in x],
+                    real_vals,
+                    width=width,
+                    label="Real",
+                    alpha=0.5,
+                    color="blue",
+                )
+                plt.bar(
+                    [i + width / 2 for i in x],
+                    syn_vals,
+                    width=width,
+                    label="Synthetic",
+                    alpha=0.5,
+                    color="red",
+                )
+                plt.xticks(ticks=x, labels=[str(i) for i in all_indices], rotation=45)
+                plt.title(f"Bar Plot: {col}")
+                plt.ylabel("Count")
+        except:
+            # Bar plot for categorical or low-cardinality numerical data
+            real_counts = real[col].value_counts().sort_index()
+            syn_counts = syn[col].value_counts().sort_index()
+            all_indices = sorted(set(real_counts.index).union(set(syn_counts.index)))
+
+            real_vals = [real_counts.get(i, 0) for i in all_indices]
+            syn_vals = [syn_counts.get(i, 0) for i in all_indices]
+
+            x = range(len(all_indices))
+            width = 0.4
+
+            plt.bar(
+                [i - width / 2 for i in x],
+                real_vals,
+                width=width,
+                label="Real",
+                alpha=0.5,
+                color="blue",
+            )
+            plt.bar(
+                [i + width / 2 for i in x],
+                syn_vals,
+                width=width,
+                label="Synthetic",
+                alpha=0.5,
+                color="red",
+            )
+            plt.xticks(ticks=x, labels=[str(i) for i in all_indices], rotation=45)
+            plt.title(f"Bar Plot: {col}")
+            plt.ylabel("Count")
+
+        plt.savefig(f"{save_dir}/descriptive_statistics/{col}.png")
+        plt.close()

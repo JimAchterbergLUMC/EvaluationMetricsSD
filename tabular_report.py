@@ -24,6 +24,7 @@ enable_reproducible_results(seed)
 # X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 # X = X[:100]
 
+
 from sklearn.datasets import load_diabetes
 import pandas as pd
 
@@ -41,4 +42,4 @@ X_syn = plugin.generate(len(X.test()))
 
 # create evaluation report (automatically saves as files in specified directory)
 save_dir = "results/report"
-report(X.train().dataframe(), X.test().dataframe(), X_syn.dataframe(), save_dir)
+report(X.train().dataframe(), X.test().dataframe(), X_syn.dataframe(), save_dir, seed)
