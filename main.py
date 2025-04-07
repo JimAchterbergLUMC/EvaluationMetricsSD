@@ -16,27 +16,26 @@ from metrics import evaluate
 generator = "arf"
 hparams = {}
 cv_folds = 2
-n_init = 1
+n_init = 2
 seed = 0
 enable_reproducible_results(seed)
 results = {}
-metrics = [
-    "mmd",
-    "wasserstein",
-    "precision-recall",
-    "authenticity",
-    # "domias"
-]
+metrics = ["mmd", "wasserstein", "precision-recall", "authenticity", "domias"]
 
 # ---------------------------------
 # START BENCHMARKING
 
 # load data
-dataset = openml.datasets.get_dataset("Diabetes130US")
-X, _, _, _ = dataset.get_data(dataset_format="dataframe")
-X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+# dataset = openml.datasets.get_dataset("Diabetes130US")
+# X, _, _, _ = dataset.get_data(dataset_format="dataframe")
+# X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+# X = X[:100]
 
-X = X[:100]
+from sklearn.datasets import load_diabetes
+import pandas as pd
+
+X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
+X = pd.concat([X, y], axis=1)
 
 # perform k fold CV
 time_start = time.perf_counter()
@@ -51,6 +50,7 @@ for fold, (train, test) in enumerate(
 
     # synthesize for multiple initializations
     for i in range(n_init):
+        print(f"init: {i}")
         hparams["random_state"] = i
         plugin = Plugins().get(generator, **hparams)
         # unconditional generation (we do not consider a specific target feature)

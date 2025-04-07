@@ -33,12 +33,13 @@ def evaluate(
         metric = _get_metric(metric_)
         if "domias" in metric_.lower():
             # only domias requires training data
-            dict_[metric_] = metric(
-                X_tr_scaled, X_te_scaled, X_syn_scaled, random_state
-            )
+            metric_result = metric(X_tr_scaled, X_te_scaled, X_syn_scaled, random_state)
         else:
-            # metrics are computed with preprocessed data (scaled, one hot, and label encoded)
-            dict_[metric_] = metric(X_te_scaled, X_syn_scaled, random_state)
+            metric_result = metric(X_te_scaled, X_syn_scaled, random_state)
+        if type(metric_result) == dict:
+            dict_.update(metric_result)
+        else:
+            dict_[metric_] = metric_result
 
     return dict_
 
@@ -150,7 +151,7 @@ def precision_recall(
         .any(axis=1)
         .mean()
     )
-    return (precision, recall)
+    return dict(precision=precision, recall=recall)
 
 
 def authenticity(real: pd.DataFrame, syn: pd.DataFrame, random_state: int):
