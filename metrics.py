@@ -5,6 +5,9 @@ import torch
 from geomloss import SamplesLoss
 from sklearn import metrics
 from sklearn.neighbors import NearestNeighbors
+from umap.parametric_umap import ParametricUMAP
+from scipy.stats import gaussian_kde
+from sklearn.metrics import roc_auc_score
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -30,7 +33,9 @@ def evaluate(
         metric = _get_metric(metric_)
         if "domias" in metric_.lower():
             # only domias requires training data
-            dict_[metric_] = metric(X_train, X_test, X_syn, random_state)
+            dict_[metric_] = metric(
+                X_tr_scaled, X_te_scaled, X_syn_scaled, random_state
+            )
         else:
             # metrics are computed with preprocessed data (scaled, one hot, and label encoded)
             dict_[metric_] = metric(X_te_scaled, X_syn_scaled, random_state)
@@ -170,18 +175,46 @@ def authenticity(real: pd.DataFrame, syn: pd.DataFrame, random_state: int):
 
 
 def DOMIAS(
-    train: pd.DataFrame, test: pd.DataFrame, syn: pd.DataFrame, random_state: int
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    syn: pd.DataFrame,
+    random_state: int,
+    ref_prop: float = 0.5,
+    reduction: str = "umap",
+    n_components: int = 5,
 ):
     """
-    Computes DOMIAS membership inference attack accuracy.
-    Estimates density through Gaussian KDE after factor decomposition.
+    Computes DOMIAS membership inference attack accuracy (AUROC).
+    Estimates density through Gaussian KDE after dimensionality reduction.
     Code based on Synthcity library.
+
+    ref_prop: proportion of test set used as reference set for computing RD density.
+    n_components: number of dimensions to retain after reduction.
     """
+    members = train.copy()
+    ref_size = int(ref_prop * len(test))
+    non_members, reference_set = test[:ref_size], test[-ref_size:]
 
-    # factor decomposition
+    X_test = np.concatenate((members.to_numpy(), non_members.to_numpy()))
+    Y_test = np.concatenate(
+        [np.ones(members.shape[0]), np.zeros(non_members.shape[0])]
+    ).astype(bool)
 
-    # perform kde
+    # dimensionality reduction through parametric UMAP
+    if reduction == "umap":
+        embedder = ParametricUMAP(n_components=n_components, random_state=random_state)
+    # fit embedder on SD -> this typically has more samples and can thus learn a better embedding function
+    synth_set = embedder.fit_transform(syn.to_numpy())
+    reference_set = embedder.transform(reference_set.to_numpy())
+    X_test = embedder.transform(X_test)
 
-    # compute domias
+    kde = gaussian_kde(synth_set.T)
+    P_G = kde(X_test.T)
+    kde = gaussian_kde(reference_set.T)
+    P_R = kde(X_test.T)
+    P_rel = P_G / (P_R + 1e-10)
+    P_rel = np.nan_to_num(P_rel)
 
-    pass
+    auc = roc_auc_score(Y_test, P_rel)
+
+    return auc

@@ -36,7 +36,7 @@ dataset = openml.datasets.get_dataset("Diabetes130US")
 X, _, _, _ = dataset.get_data(dataset_format="dataframe")
 X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 
-X = X[:1000]
+X = X[:100]
 
 # perform k fold CV
 time_start = time.perf_counter()
@@ -44,7 +44,7 @@ for fold, (train, test) in enumerate(
     KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(X)
 ):
     print(f"fold: {fold}")
-    results[fold] = {}
+    results[f"fold: {fold}"] = {}
     # get train-test data
     X_train = GenericDataLoader(data=X.iloc[train])
     X_test = GenericDataLoader(data=X.iloc[test])
@@ -57,7 +57,7 @@ for fold, (train, test) in enumerate(
         plugin.fit(X_train)
         X_syn = plugin.generate(len(test))
         # evaluation
-        results[fold][i] = evaluate(
+        results[f"fold: {fold}"][f"init: {i}"] = evaluate(
             X_train.dataframe(),
             X_test.dataframe(),
             X_syn.dataframe(),

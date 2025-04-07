@@ -1,2 +1,4 @@
 synthcity==0.2.11
 openml==0.15.1
+umap-learn==0.5.7
+tensorflow==2.19.0
