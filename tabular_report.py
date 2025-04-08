@@ -5,7 +5,7 @@ from synthcity.plugins.core.dataloader import GenericDataLoader
 from synthcity.plugins import Plugins
 from synthcity.utils.reproducibility import enable_reproducible_results
 import openml
-from metrics import report
+from evaluation import report
 
 # ---------------------------------
 # BENCHMARK PARAMETERS
@@ -19,17 +19,17 @@ enable_reproducible_results(seed)
 # START REPORTING
 
 # load data
-# dataset = openml.datasets.get_dataset("Diabetes130US")
+# dataset = openml.datasets.get_dataset(4541)
 # X, _, _, _ = dataset.get_data(dataset_format="dataframe")
 # X = X.drop(["encounter_id", "patient_nbr"], axis=1)
-# X = X[:100]
-
+# X = X[:1000]
 
 from sklearn.datasets import load_diabetes
 import pandas as pd
 
-X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
+X, y = load_diabetes(return_X_y=True, as_frame=True, scaled=False)
 X = pd.concat([X, y], axis=1)
+
 
 X = GenericDataLoader(data=X, random_state=seed, train_size=0.8)
 
@@ -42,4 +42,13 @@ X_syn = plugin.generate(len(X.test()))
 
 # create evaluation report (automatically saves as files in specified directory)
 save_dir = "results/report"
-report(X.train().dataframe(), X.test().dataframe(), X_syn.dataframe(), save_dir, seed)
+# pass metrics with params
+metrics = {"constraints": ["s1>=s2+s3"]}
+report(
+    X.train().dataframe(),
+    X.test().dataframe(),
+    X_syn.dataframe(),
+    save_dir,
+    seed,
+    **metrics
+)

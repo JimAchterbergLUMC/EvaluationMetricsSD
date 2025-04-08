@@ -1,3 +1,5 @@
+# contains helper functions for preprocessing
+
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, MinMaxScaler
 
@@ -43,3 +45,20 @@ def preprocess_eval(
     test = pd.DataFrame(scaler.transform(test), columns=scaler.get_feature_names_out())
     syn = pd.DataFrame(scaler.transform(syn), columns=scaler.get_feature_names_out())
     return train, test, syn
+
+
+def determine_feature_types(df: pd.DataFrame, threshold: int = 15):
+    numerical = []
+    categorical = []
+
+    for col in df.columns:
+        try:
+            col_data = df[col].astype(float)
+            if col_data.nunique() >= threshold:
+                numerical.append(col)
+            else:
+                categorical.append(col)
+        except ValueError:
+            categorical.append(col)
+
+    return numerical, categorical

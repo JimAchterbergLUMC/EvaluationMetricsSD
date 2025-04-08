@@ -8,7 +8,7 @@ from synthcity.utils.reproducibility import enable_reproducible_results
 import openml
 from sklearn.model_selection import KFold
 
-from metrics import evaluate
+from evaluation import evaluate
 
 # ---------------------------------
 # BENCHMARK PARAMETERS
@@ -16,7 +16,7 @@ from metrics import evaluate
 generator = "arf"
 hparams = {}
 cv_folds = 2
-n_init = 2
+n_init = 1
 seed = 0
 enable_reproducible_results(seed)
 results = {}
@@ -26,16 +26,16 @@ metrics = ["mmd", "wasserstein", "precision-recall", "authenticity", "domias"]
 # START BENCHMARKING
 
 # load data
-# dataset = openml.datasets.get_dataset("Diabetes130US")
-# X, _, _, _ = dataset.get_data(dataset_format="dataframe")
-# X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+dataset = openml.datasets.get_dataset(4541)
+X, _, _, _ = dataset.get_data(dataset_format="dataframe")
+X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 # X = X[:100]
 
-from sklearn.datasets import load_diabetes
-import pandas as pd
+# from sklearn.datasets import load_diabetes
+# import pandas as pd
 
-X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
-X = pd.concat([X, y], axis=1)
+# X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
+# X = pd.concat([X, y], axis=1)
 
 # perform k fold CV
 time_start = time.perf_counter()
