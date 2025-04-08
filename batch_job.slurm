@@ -23,6 +23,7 @@ set -e
 
 # create a conda environment
 mkdir /tmp/jlenv
+chmod 700 /tmp/jlenv
 conda create --prefix /tmp/jlenv/conda_env python=3.10 -y
 conda activate /tmp/jlenv/conda_env
 # install packages
