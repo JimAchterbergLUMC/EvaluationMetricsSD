@@ -8,7 +8,7 @@ from synthcity.utils.reproducibility import enable_reproducible_results
 import openml
 from sklearn.model_selection import KFold
 
-from evaluation import evaluate
+from evaluation import benchmark
 
 # ---------------------------------
 # BENCHMARK PARAMETERS
@@ -20,22 +20,21 @@ n_init = 1
 seed = 0
 enable_reproducible_results(seed)
 results = {}
-metrics = ["mmd", "wasserstein", "precision-recall", "authenticity", "domias"]
-
+metrics = {"wasserstein": {}, "prdc": {}, "mmd": {}, "authenticity": {}, "domias": {}}
 # ---------------------------------
 # START BENCHMARKING
 
 # load data
-dataset = openml.datasets.get_dataset(4541)
-X, _, _, _ = dataset.get_data(dataset_format="dataframe")
-X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+# dataset = openml.datasets.get_dataset(4541)
+# X, _, _, _ = dataset.get_data(dataset_format="dataframe")
+# X = X.drop(["encounter_id", "patient_nbr"], axis=1)
 # X = X[:100]
 
-# from sklearn.datasets import load_diabetes
-# import pandas as pd
+from sklearn.datasets import load_diabetes
+import pandas as pd
 
-# X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
-# X = pd.concat([X, y], axis=1)
+X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
+X = pd.concat([X, y], axis=1)
 
 # perform k fold CV
 time_start = time.perf_counter()
@@ -57,12 +56,11 @@ for fold, (train, test) in enumerate(
         plugin.fit(X_train)
         X_syn = plugin.generate(len(test))
         # evaluation
-        results[f"fold: {fold}"][f"init: {i}"] = evaluate(
+        results[f"fold: {fold}"][f"init: {i}"] = benchmark(
             X_train.dataframe(),
             X_test.dataframe(),
             X_syn.dataframe(),
-            metrics,
-            random_state=seed,  # we use the same random state for metrics across initializations
+            metrics,  # we use the same random state for metrics across initializations
         )
 time_end = time.perf_counter()
 results["timer"] = time_end - time_start

@@ -43,12 +43,12 @@ X_syn = plugin.generate(len(X.test()))
 # create evaluation report (automatically saves as files in specified directory)
 save_dir = "results/report"
 # pass metrics with params
-metrics = {"constraints": ["s1>=s2+s3"]}
+report_params = {"constraints": ["s1>=s2+s3"]}
 report(
     X.train().dataframe(),
     X.test().dataframe(),
     X_syn.dataframe(),
     save_dir,
     seed,
-    **metrics
+    **report_params
 )
