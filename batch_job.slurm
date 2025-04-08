@@ -34,3 +34,4 @@ python3 main.py
 # cleanup environment
 conda deactivate
 rm -r /tmp/jlenv
+module purge
