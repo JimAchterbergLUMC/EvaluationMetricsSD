@@ -83,43 +83,51 @@ def benchmark(
     return dict_
 
 
-# def report(
-#     train: pd.DataFrame,
-#     test: pd.DataFrame,
-#     syn: pd.DataFrame,
-#     save_dir: str,
-#     random_state: int,
-#     **report_params,
-# ):
-#     if os.path.exists(save_dir):
-#         shutil.rmtree(save_dir)
-#     os.makedirs(save_dir, exist_ok=True)
+def report(
+    train: pd.DataFrame, test: pd.DataFrame, syn: pd.DataFrame, save_dir: str, **metrics
+):
+    if os.path.exists(save_dir):
+        shutil.rmtree(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
 
-#     # compute evals and save as files in save_dir
-#     # -------------------------------------------------------
-#     # fidelity
+    for key in metrics.keys():
 
-#     constraints(
-#         test,
-#         syn,
-#         f"{save_dir}/constraints",
-#         constraint_list=report_params["constraints"],
-#     )
+        if key == "domain_constraints":
+            constraints = DomainConstraint(**metrics["domain_constraints"]).evaluate(
+                test, syn
+            )  # output: dict(constraint1:{Real:...,Synthetic:...},constraint2:{Real:...,Synthetic:...})
+            # write dict to text file
+            with open(f"{save_dir}/domain_constraints.txt", "w") as f:
+                for c, vals in constraints.items():
+                    f.write(f"{c} \n")
+                    for d, val in vals.items():
+                        f.write(f"{d}: {val} \n")
 
-#     marginal_plots(test, syn, f"{save_dir}/marginal_plots")
+        elif key == "marginal_plots":
+            metrics["marginal_plots"]["save_dir"] = f"{save_dir}/marginal_plots"
+            plots = FeatureWisePlots(**metrics["marginal_plots"]).evaluate(test, syn)
 
-#     correlations(test, syn, f"{save_dir}/correlations")
+        elif key == "correlation_plots":
+            metrics["correlation_plots"]["save_dir"] = f"{save_dir}/correlation_plots"
+            plots = CorrelationPlots(**metrics["correlation_plots"]).evaluate(test, syn)
 
-#     # Association Rule Mining
+        elif key == "arm":
+            arm = AssociationRuleMining(**metrics["arm"]).evaluate(test, syn)
+            with open(f"{save_dir}/association_rules.txt", "w") as f:
+                for k, v in arm.items():
+                    f.write(f"{k}: {v} \n")
 
-#     # Dimension Wise Prediction
+        elif key == "dwp":
+            dwp = DWP(**metrics["dwp"]).evaluate(test, syn)
+            with open(f"{save_dir}/dimensionwise_prediction.txt", "w") as f:
+                for k, v in dwp.items():
+                    f.write(f"{k}: \n")
+                    for k_, v_ in v.items():
+                        f.write(f"{k_}: {v_} \n")
 
-#     # projections
-#     project(
-#         test, syn, f"{save_dir}/projections", random_state, type_list=["pca", "tsne"]
-#     )
+    # projections = Projections(**metrics["projections"])
 
-#     # -------------------------------------------------------
-#     # privacy
+    # -------------------------------------------------------
+    # privacy
 
-#     # MIA: make assumption regarding
+    # MIA: make assumption regarding

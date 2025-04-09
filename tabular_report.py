@@ -43,12 +43,33 @@ X_syn = plugin.generate(len(X.test()))
 # create evaluation report (automatically saves as files in specified directory)
 save_dir = "results/report"
 # pass metrics with params
-report_params = {"constraints": ["s1>=s2+s3"]}
+metrics = {
+    # "domain_constraints": {"constraint_list": ["s1>=s2+s3"]},
+    # "marginal_plots": {
+    #     "discrete_features": ["sex"],
+    #     "plot_cols": 4,
+    #     "figsize": (10, 10),
+    #     "single_fig": True,
+    # },
+    # "correlation_plots": {
+    #     "discrete_features": ["sex"],
+    #     "figsize": (10, 10),
+    #     "single_fig": True,
+    # },
+    # "arm": {
+    #     "discrete_features": ["sex"],
+    #     "n_bins": 2,
+    #     "min_support": 0.2,
+    #     "min_confidence": 0.7,
+    # },
+    "dwp": {
+        "discrete_features": ["sex"],
+    },
+}
 report(
     X.train().dataframe(),
     X.test().dataframe(),
     X_syn.dataframe(),
-    save_dir,
-    seed,
-    **report_params
+    save_dir=save_dir,
+    **metrics
 )

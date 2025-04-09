@@ -1,8 +1,9 @@
 from typing import Any
+import os
 import matplotlib.axes
 import numpy as np
 import matplotlib
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from xgboost import XGBClassifier, XGBRegressor
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.metrics import roc_auc_score, root_mean_squared_error
 from sklearn.decomposition import PCA
@@ -28,14 +29,17 @@ import seaborn as sns
 
 class DomainConstraint:
 
-    def __init__(self, constraint: str):
+    def __init__(self, constraint_list: list):
         super().__init__()
-        self.constraint = constraint
+        self.constraint_list = constraint_list
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         result = {}
-        result["Real"] = rd.eval(self.constraint).mean()
-        result["Synthetic"] = sd.eval(self.constraint).mean()
+        for constraint in self.constraint_list:
+            result[constraint] = {}
+            result[constraint]["Real"] = rd.eval(constraint).mean()
+            result[constraint]["Synthetic"] = sd.eval(constraint).mean()
+
         return result
 
 
@@ -44,13 +48,19 @@ class FeatureWisePlots:
     def __init__(
         self,
         discrete_features: list,
+        save_dir: str = None,
         plot_cols: int = 3,
         figsize: tuple = (10, 10),
+        single_fig: bool = True,
     ):
         super().__init__()
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
         self.discrete_features = discrete_features
         self.plot_cols = plot_cols
         self.figsize = figsize
+        self.single_fig = single_fig
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         self.numerical_features = [
@@ -171,30 +181,138 @@ class FeatureWisePlots:
         # Remove unused subplots if any
         for j in range(i + 1, len(axes)):
             fig.delaxes(axes[j])
+        np.delete(axes, list(range(i + 1, len(axes))))
 
-        legend = axes[-2].legend()
-        axes[-2].get_legend().remove()
+        if self.single_fig:
+            legend = axes[-1].legend()
+            axes[-1].get_legend().remove()
 
-        fig.legend(
-            legend.legend_handles,
-            [t.get_text() for t in legend.get_texts()],
-            loc="lower right",
-            fontsize=12,
-        )
+            fig.legend(
+                legend.legend_handles,
+                [t.get_text() for t in legend.get_texts()],
+                loc="lower right",
+                fontsize=12,
+            )
 
-        plt.tight_layout()
-        return plt
+            plt.tight_layout()
+
+            if self.save_dir is not None:
+                plt.savefig(f"{self.save_dir}/all_features.png")
+
+            return plt
+
+        else:
+
+            for i, ax in enumerate(axes):
+                fig, new_ax = plt.subplots(figsize=self.figsize)
+
+                # Copy lines
+                for line in ax.lines:
+                    new_ax.plot(
+                        *line.get_data(),
+                        label=line.get_label(),
+                        color=line.get_color(),
+                        linestyle=line.get_linestyle(),
+                        linewidth=line.get_linewidth(),
+                        marker=line.get_marker(),
+                    )
+
+                # Copy scatter plots (collections)
+                for collection in ax.collections:
+                    offsets = collection.get_offsets()
+                    if len(offsets) > 0:
+                        x, y = offsets[:, 0], offsets[:, 1]
+                        new_ax.scatter(
+                            x,
+                            y,
+                            label=collection.get_label(),
+                            color=collection.get_facecolor()[0],
+                            marker=collection.get_paths()[0],
+                            alpha=collection.get_alpha(),
+                        )
+
+                # Copy bars, histograms, patches (e.g., rectangles)
+                for patch in ax.patches:
+                    new_patch = patch.__class__(
+                        xy=(
+                            patch.get_xy()
+                            if hasattr(patch, "get_xy")
+                            else (patch.get_x(), patch.get_y())
+                        ),
+                        width=patch.get_width(),
+                        height=patch.get_height(),
+                        angle=getattr(patch, "angle", 0),
+                        facecolor=patch.get_facecolor(),
+                        edgecolor=patch.get_edgecolor(),
+                        alpha=patch.get_alpha(),
+                        linewidth=patch.get_linewidth(),
+                        linestyle=patch.get_linestyle(),
+                    )
+                    new_ax.add_patch(new_patch)
+
+                # Copy images (e.g., heatmaps)
+                for im in ax.images:
+                    new_ax.imshow(
+                        im.get_array(),
+                        extent=im.get_extent(),
+                        origin=im.origin,
+                        cmap=im.get_cmap(),
+                        alpha=im.get_alpha(),
+                        interpolation=im.get_interpolation(),
+                    )
+
+                # Copy annotations/text
+                for text in ax.texts:
+                    new_ax.text(
+                        text.get_position()[0],
+                        text.get_position()[1],
+                        text.get_text(),
+                        fontsize=text.get_fontsize(),
+                        color=text.get_color(),
+                        verticalalignment="top",
+                        transform=new_ax.transAxes,
+                    )
+
+                # Copy title and labels
+                new_ax.set_title(ax.get_title())
+                new_ax.set_xlabel(ax.get_xlabel())
+                new_ax.set_ylabel(ax.get_ylabel())
+
+                # Copy limits
+                new_ax.set_xlim(ax.get_xlim())
+                new_ax.set_ylim(ax.get_ylim())
+
+                # Copy legend
+                if ax.get_legend():
+                    new_ax.legend()
+
+                # Save and close
+                if self.save_dir is not None:
+
+                    fig.savefig(
+                        f"{self.save_dir}/{ax.get_title()}.png",
+                        bbox_inches="tight",
+                    )
+
+                plt.close(fig)
+
+            return axes
 
 
 class CorrelationPlots:
     def __init__(
         self,
         discrete_features: list,
-        figsize: tuple = (15, 10),
+        save_dir: str = None,
+        figsize: tuple = (10, 10),
+        single_fig: bool = True,
     ):
         super().__init__()
         self.discrete_features = discrete_features
         self.figsize = figsize
+        self.single_fig = single_fig
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         self.numerical_features = [
@@ -204,37 +322,75 @@ class CorrelationPlots:
         corr_rd = self.compute_mixed_correlation_matrix(rd)
         corr_sd = self.compute_mixed_correlation_matrix(sd)
 
-        fig, axs = plt.subplots(ncols=2, figsize=self.figsize)
-        sns.heatmap(
-            corr_rd,
-            annot=True,
-            fmt=".2f",
-            cmap="RdBu_r",
-            center=0,
-            linewidths=0.5,
-            ax=axs[0],
-            square=True,
-            cbar_kws={"shrink": 0.5},
-            vmin=-1,
-            vmax=1,
-        )
-        axs[0].set_title("Real")
-        sns.heatmap(
-            corr_sd,
-            annot=True,
-            fmt=".2f",
-            cmap="RdBu_r",
-            center=0,
-            linewidths=0.5,
-            square=True,
-            ax=axs[1],
-            cbar_kws={"shrink": 0.5},
-            vmin=-1,
-            vmax=1,
-        )
-        axs[1].set_title("Synthetic")
-        plt.tight_layout()
-        return plt
+        if self.single_fig:
+            fig, axs = plt.subplots(ncols=2, figsize=self.figsize)
+            sns.heatmap(
+                corr_rd,
+                annot=True,
+                fmt=".2f",
+                cmap="RdBu_r",
+                center=0,
+                linewidths=0.5,
+                ax=axs[0],
+                square=True,
+                cbar_kws={"shrink": 0.5},
+                vmin=-1,
+                vmax=1,
+            )
+            axs[0].set_title("Real")
+            sns.heatmap(
+                corr_sd,
+                annot=True,
+                fmt=".2f",
+                cmap="RdBu_r",
+                center=0,
+                linewidths=0.5,
+                square=True,
+                ax=axs[1],
+                cbar_kws={"shrink": 0.5},
+                vmin=-1,
+                vmax=1,
+            )
+            axs[1].set_title("Synthetic")
+            plt.tight_layout()
+            plt.savefig(f"{self.save_dir}/correlation_all.png")
+            return plt
+        else:
+            fig1, axs = plt.subplots(figsize=self.figsize)
+            sns.heatmap(
+                corr_rd,
+                annot=True,
+                fmt=".2f",
+                cmap="RdBu_r",
+                center=0,
+                linewidths=0.5,
+                ax=axs,
+                square=True,
+                cbar_kws={"shrink": 0.5},
+                vmin=-1,
+                vmax=1,
+            )
+            axs.set_title("Real")
+            plt.tight_layout()
+            plt.savefig(f"{self.save_dir}/correlation_rd.png")
+            fig2, axs = plt.subplots(figsize=self.figsize)
+            sns.heatmap(
+                corr_sd,
+                annot=True,
+                fmt=".2f",
+                cmap="RdBu_r",
+                center=0,
+                linewidths=0.5,
+                square=True,
+                ax=axs,
+                cbar_kws={"shrink": 0.5},
+                vmin=-1,
+                vmax=1,
+            )
+            axs.set_title("Synthetic")
+            plt.tight_layout()
+            plt.savefig(f"{self.save_dir}/correlation_sd.png")
+            return fig1, fig2
 
     def compute_mixed_correlation_matrix(self, data):
 
@@ -395,13 +551,13 @@ class DWP:
     def __init__(
         self,
         discrete_features,
-        reg=RandomForestRegressor(),
-        clf=RandomForestClassifier(),
+        reg=XGBRegressor(max_depth=3),
+        clf=XGBClassifier(max_depth=3),
         metric_numerical=root_mean_squared_error,
         metric_discrete=lambda y_true, y_score: roc_auc_score(
             y_true, y_score, average="micro", multi_class="ovr"
         ),
-        k: int = 5,
+        k: int = 3,
     ):
         super().__init__()
         self.discrete_features = discrete_features
@@ -410,28 +566,6 @@ class DWP:
         self.metric_numerical = metric_numerical
         self.metric_discrete = metric_discrete
         self.k = k
-
-    def onehot(self, data: pd.DataFrame):
-        # separate original discrete features as to not change it when looping through target features
-        self.discrete_features_new = self.discrete_features.copy()
-        df = []
-        for col in data.columns:
-            if col in self.discrete_features:
-                encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
-                new_data = encoder.fit_transform(data[[col]])
-                new_cols = (
-                    encoder.get_feature_names_out(input_features=[col])
-                    if len(np.unique(data[[col]])) > 2
-                    else [col]
-                )
-                # remove old col name and add new ohe col names
-                self.discrete_features_new.remove(col)
-                self.discrete_features_new.extend(new_cols)
-                df.append(pd.DataFrame(new_data, columns=new_cols))
-            else:
-                df.append(data[[col]])
-        df = pd.concat(df, axis=1)
-        return df
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
 
@@ -458,18 +592,35 @@ class DWP:
             else:
                 model = self.reg
                 metric = self.metric_numerical
-            X_tr = train.drop(col, axis=1)
-            y_tr = train[col]
-            X_te = test.drop(col, axis=1)
-            y_te = test[col]
 
-            # perform preprocessing (OHE and scaling)
-            xx = self.onehot(data=pd.concat([X_tr, X_te], ignore_index=True))
-            # get numerical feature names (after changes due to OHE)
+            # OHE (one hot encode discrete non-target columns and append)
+            X = pd.concat([train, test], ignore_index=True)
+            ohe_cols = [x for x in self.discrete_features if x != col]
+            encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
+            X_ohe = pd.DataFrame(
+                encoder.fit_transform(X[ohe_cols]),
+                columns=encoder.get_feature_names_out(ohe_cols),
+            )
+            X = X.drop(columns=ohe_cols)
+            X = pd.concat(
+                [X, X_ohe],
+                axis=1,
+            )
+
+            X_tr, X_te = X[: len(train)], X[len(train) :]
+            X_tr, y_tr, X_te, y_te = (
+                X_tr.drop(col, axis=1),
+                X_tr[col],
+                X_te.drop(col, axis=1),
+                X_te[col],
+            )
             numerical_features = [
-                x for x in X_tr.columns if x not in self.discrete_features_new
+                x
+                for x in X_tr.columns
+                if x not in self.discrete_features
+                and x not in encoder.get_feature_names_out(ohe_cols)
             ]
-            X_tr, X_te = xx.iloc[: len(X_tr)], xx.iloc[len(X_tr) :]
+            print(numerical_features)
             scaler = StandardScaler()
             X_tr[numerical_features] = scaler.fit_transform(X_tr[numerical_features])
             X_te[numerical_features] = scaler.transform(X_te[numerical_features])
@@ -499,7 +650,7 @@ class DWP:
             if (col in self.discrete_features) and (len(np.unique(y_tr)) == 2):
                 preds = preds[:, 1]
             score = metric(y_te, preds)
-            dwp.update({col: score})
+            dwp[col] = score
         return dwp
 
 
@@ -556,7 +707,7 @@ class ClassifierTest:
     def __init__(
         self,
         discrete_features: list,
-        clf: Any = RandomForestClassifier(),
+        clf: Any = XGBClassifier(max_depth=3),
         kfolds: int = 5,
     ):
         super().__init__()
