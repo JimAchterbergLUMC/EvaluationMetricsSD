@@ -12,7 +12,7 @@ from metrics.fidelity import (
     DWP,
     FeatureWisePlots,
     ClassifierTest,
-    ClusteringTest,
+    # ClusteringTest,
     CorrelationPlots,
     Projections,
     PRDC,
@@ -28,7 +28,7 @@ METRICS = {
     "dwp": DWP,
     "featurewise_plots": FeatureWisePlots,
     "classifier_test": ClassifierTest,
-    "clustering_test": ClusteringTest,
+    # "clustering_test": ClusteringTest,
     "correlation_plots": CorrelationPlots,
     "projections": Projections,
     "prdc": PRDC,
@@ -52,30 +52,44 @@ def benchmark(
     metrics: dict of dicts. Each metric has a dict containing parameters relevant to initializing that metric.
     """
 
-    # one hot, label encode, minmax scale
+    # one hot, label encode, standard scale
     # TBD: separate metric computation for those which do not require preprocessing
     # -> no preprocessing: featurewise plots, correlations, dwp, domain constraint, utility metrics, projections maybe? classifier test (due to skf),
     X_tr_scaled, X_te_scaled, X_syn_scaled = preprocess_eval(
-        X_train, X_test, X_syn, ohe_threshold=15
+        X_train, X_test, X_syn, ohe_threshold=15, normalization="standard"
     )
 
     dict_ = {}
-    for metric_ in metrics.keys():
-        metric = METRICS[metric_](**metrics[metric_])
+    for metric__ in metrics.keys():
+        metric_ = metric__.split("-")[0].strip()
+        metric = METRICS[metric_](**metrics[metric__])
         if "domias" in metric_.lower():
-            # only domias requires training data
+            # domias requires training data and uses full SD set
             metric_result = metric.evaluate(X_tr_scaled, X_te_scaled, X_syn_scaled)
+        elif "authenticity" in metric_.lower():
+            # authenticity should be computed w.r.t. training data (so we also take that size synthetic data)
+            metric_result = metric.evaluate(
+                X_tr_scaled,
+                X_syn_scaled[: len(X_train)],
+            )
+        elif "classifier_test" in metric_.lower():
+            # classifier metric performs CV and thus preprocessing internally
+            metric_result = metric.evaluate(
+                X_train,
+                X_syn[-len(X_test) :],
+            )
         else:
+            # other metrics are computed w.r.t. test set (so we also take that size synthetic data)
             metric_result = metric.evaluate(
                 X_te_scaled,
-                X_syn_scaled,
+                X_syn_scaled[-len(X_test) :],
             )
 
         if type(metric_result) == dict:
             dict_.update(metric_result)
         else:
             try:
-                dict_[metric_] = metric_result
+                dict_[metric__] = metric_result
             except:
                 # don't add if not possible (perhaps a metric which doesnt output anything)
                 pass
@@ -95,8 +109,7 @@ def report(
         if key == "domain_constraints":
             constraints = DomainConstraint(**metrics["domain_constraints"]).evaluate(
                 test, syn
-            )  # output: dict(constraint1:{Real:...,Synthetic:...},constraint2:{Real:...,Synthetic:...})
-            # write dict to text file
+            )
             with open(f"{save_dir}/domain_constraints.txt", "w") as f:
                 for c, vals in constraints.items():
                     f.write(f"{c} \n")
@@ -124,10 +137,20 @@ def report(
                     f.write(f"{k}: \n")
                     for k_, v_ in v.items():
                         f.write(f"{k_}: {v_} \n")
+        elif key == "projections":
+            metrics["projections"]["save_dir"] = f"{save_dir}/projections"
+            train_scaled, test_scaled, syn_scaled = preprocess_eval(
+                train, test, syn, ohe_threshold=15, normalization="standard"
+            )
+            projections = Projections(**metrics["projections"]).evaluate(
+                test_scaled, syn_scaled
+            )
 
-    # projections = Projections(**metrics["projections"])
+        else:
+            raise Exception(f"metric {key} not implemented for reporting.")
 
     # -------------------------------------------------------
     # privacy
+    # note that NNAA and authenticity should be w.r.t. training set
 
     # MIA: make assumption regarding

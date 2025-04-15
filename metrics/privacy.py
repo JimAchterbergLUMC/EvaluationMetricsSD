@@ -2,8 +2,26 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 from scipy.stats import gaussian_kde
-from umap.parametric_umap import ParametricUMAP
-from sklearn.metrics import roc_auc_score
+from torch import nn
+from umap import UMAP
+from sklearn.metrics import roc_auc_score, r2_score, root_mean_squared_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from xgboost import XGBClassifier, XGBRegressor
+
+from utils import preprocess_prediction
+
+# TBD: implement more prediction models
+CLF = {"xgb": XGBClassifier(max_depth=3)}
+REG = {"xgb": XGBRegressor(max_depth=3)}
+
+# TBD: implement more accuracy metrics
+ACCURACY_METRICS = {
+    "rmse": root_mean_squared_error,
+    "roc_auc": lambda y_true, y_score: roc_auc_score(
+        y_true, y_score, average="micro", multi_class="ovr"
+    ),
+}
 
 
 class DOMIAS:
@@ -12,6 +30,7 @@ class DOMIAS:
         self,
         ref_prop: float = 0.5,
         reduction: str = "umap",
+        n_neighbours: int = 5,
         n_components: int = 5,
         random_state: int = 0,
     ):
@@ -20,6 +39,7 @@ class DOMIAS:
         self.reduction = reduction
         self.n_components = n_components
         self.random_state = random_state
+        self.n_neighbours = n_neighbours
 
     def evaluate(
         self,
@@ -44,15 +64,29 @@ class DOMIAS:
             [np.ones(members.shape[0]), np.zeros(non_members.shape[0])]
         ).astype(bool)
 
-        # dimensionality reduction through parametric UMAP
+        # dimensionality reduction
         if self.reduction == "umap":
-            embedder = ParametricUMAP(
+            embedder = UMAP(
+                n_neighbors=self.n_neighbours,
+                n_components=self.n_components,
+                random_state=self.random_state,
+            )
+        elif self.reduction == "pca":
+            embedder = PCA(
                 n_components=self.n_components, random_state=self.random_state
             )
-        # fit embedder on SD -> this typically has more samples and can thus learn a better embedding function
-        synth_set = embedder.fit_transform(syn.to_numpy())
-        reference_set = embedder.transform(reference_set.to_numpy())
-        X_test = embedder.transform(X_test)
+        else:
+            raise Exception(f"Reduction {self.reduction} not implemented")
+        # fit embedder on syn and reference to avoid leakage of test data which would inflate separability
+        all_ = np.concatenate((syn.to_numpy(), reference_set.to_numpy()))
+        all_ = embedder.fit_transform(all_)
+        # project test data to same space
+        all_ = np.concatenate((all_, embedder.transform(X_test)))
+        # standardize for gaussian KDE
+        all_ = StandardScaler().fit_transform(all_)
+        synth_set = all_[: len(syn)]
+        reference_set = all_[len(syn) : len(syn) + len(reference_set)]
+        X_test = all_[-len(X_test) :]
 
         kde = gaussian_kde(synth_set.T)
         P_G = kde(X_test.T)
@@ -63,10 +97,13 @@ class DOMIAS:
 
         auc = roc_auc_score(Y_test, P_rel)
 
-        return {"domias AUC": auc}
+        return {f"domias AUC ({self.reduction})": auc}
 
 
 class Authenticity:
+    """
+    Note that authenticity should be computed w.r.t. training set.
+    """
 
     def __init__(self):
         super().__init__()
@@ -89,3 +126,67 @@ class Authenticity:
         authen = real_to_real[real_to_synth_args] < real_to_synth
 
         return {"authenticity": np.mean(authen)}
+
+
+class AttributeInferenceAttack:
+
+    # TBD: how to compare with "naive" score
+
+    def __init__(
+        self,
+        quasi_identifiers: list,
+        sensitive_attributes: list,
+        discrete_features: list,
+        model_name: str = "xgb",
+        metric_numerical: str = "rmse",
+        metric_discrete: str = "roc_auc",
+    ):
+        self.quasi_identifiers = quasi_identifiers
+        self.sensitive_attributes = sensitive_attributes
+        self.discrete_features = discrete_features
+        self.model_name = model_name
+        self.metric_numerical = metric_numerical
+        self.metric_discrete = metric_discrete
+
+    def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
+
+        # returns dict: {sensitive feature: accuracy}
+        all_cols = self.quasi_identifiers + self.sensitive_attributes
+        dict_ = {}
+        for target in self.sensitive_attributes:
+            all_cols = self.quasi_identifiers + [target]
+            X_tr, y_tr, X_te, y_te = preprocess_prediction(
+                train=sd[all_cols],
+                test=rd[all_cols],
+                target_col=target,
+                discrete_features=self.discrete_features,
+                normalization="standard",
+            )
+            if target in self.discrete_features:
+                model = CLF[self.model_name]
+                metric = ACCURACY_METRICS[self.metric_discrete]
+            else:
+                model = REG[self.model_name]
+                metric = ACCURACY_METRICS[self.metric_numerical]
+
+            model.fit(X_tr, y_tr)
+            preds = model.predict(X_te)
+            if target in self.discrete_features:
+                if self.metric_discrete == "roc_auc":
+                    preds = model.predict_proba(X_te)
+                    if len(np.unique(y_tr)) == 2:
+                        preds = preds[:, 1]
+                else:
+                    preds = model.predict(X_te)
+            else:
+                preds = model.predict(X_te)
+            dict_[target] = metric(y_te, preds)
+        return dict_
+
+
+class NNAA:
+    def __init__(self, metric="euclidean"):
+        pass
+
+    def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
+        pass

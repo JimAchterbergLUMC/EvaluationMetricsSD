@@ -8,9 +8,7 @@ from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.metrics import roc_auc_score, root_mean_squared_error
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from scipy.stats import gaussian_kde
 from torchvision import transforms as transforms
-from scipy.spatial.distance import jensenshannon
 from geomloss import SamplesLoss
 import torch
 from sklearn import metrics
@@ -25,6 +23,22 @@ from sklearn.preprocessing import (
 )
 from mlxtend.frequent_patterns import apriori, association_rules
 import seaborn as sns
+from umap import UMAP
+from sklearn.manifold import TSNE
+
+from utils import preprocess_prediction
+
+# TBD: implement more prediction models
+CLF = {"xgb": XGBClassifier(max_depth=3)}
+REG = {"xgb": XGBRegressor(max_depth=3)}
+
+# TBD: implement more accuracy metrics
+ACCURACY_METRICS = {
+    "rmse": root_mean_squared_error,
+    "roc_auc": lambda y_true, y_score: roc_auc_score(
+        y_true, y_score, average="micro", multi_class="ovr"
+    ),
+}
 
 
 class DomainConstraint:
@@ -551,18 +565,14 @@ class DWP:
     def __init__(
         self,
         discrete_features,
-        reg=XGBRegressor(max_depth=3),
-        clf=XGBClassifier(max_depth=3),
-        metric_numerical=root_mean_squared_error,
-        metric_discrete=lambda y_true, y_score: roc_auc_score(
-            y_true, y_score, average="micro", multi_class="ovr"
-        ),
+        model_name: str = "xgb",
+        metric_numerical: str = "rmse",
+        metric_discrete: str = "roc_auc",
         k: int = 3,
     ):
         super().__init__()
         self.discrete_features = discrete_features
-        self.reg = reg
-        self.clf = clf
+        self.model_name = model_name
         self.metric_numerical = metric_numerical
         self.metric_discrete = metric_discrete
         self.k = k
@@ -587,68 +597,26 @@ class DWP:
         dwp = {}
         for col in train.columns:
             if col in self.discrete_features:
-                model = self.clf
-                metric = self.metric_discrete
+                model = CLF[self.model_name]
+                metric = ACCURACY_METRICS[self.metric_discrete]
             else:
-                model = self.reg
-                metric = self.metric_numerical
+                model = REG[self.model_name]
+                metric = ACCURACY_METRICS[self.metric_numerical]
 
-            # OHE (one hot encode discrete non-target columns and append)
-            X = pd.concat([train, test], ignore_index=True)
-            ohe_cols = [x for x in self.discrete_features if x != col]
-            encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
-            X_ohe = pd.DataFrame(
-                encoder.fit_transform(X[ohe_cols]),
-                columns=encoder.get_feature_names_out(ohe_cols),
+            X_tr, y_tr, X_te, y_te = preprocess_prediction(
+                train, test, col, self.discrete_features
             )
-            X = X.drop(columns=ohe_cols)
-            X = pd.concat(
-                [X, X_ohe],
-                axis=1,
-            )
-
-            X_tr, X_te = X[: len(train)], X[len(train) :]
-            X_tr, y_tr, X_te, y_te = (
-                X_tr.drop(col, axis=1),
-                X_tr[col],
-                X_te.drop(col, axis=1),
-                X_te[col],
-            )
-            numerical_features = [
-                x
-                for x in X_tr.columns
-                if x not in self.discrete_features
-                and x not in encoder.get_feature_names_out(ohe_cols)
-            ]
-            print(numerical_features)
-            scaler = StandardScaler()
-            X_tr[numerical_features] = scaler.fit_transform(X_tr[numerical_features])
-            X_te[numerical_features] = scaler.transform(X_te[numerical_features])
-
-            if col not in self.discrete_features:
-                # normalize numerical targets
-                scaler = StandardScaler()
-                y_tr = pd.Series(
-                    scaler.fit_transform(y_tr.to_frame()).flatten(), name=y_tr.name
-                )
-                y_te = pd.Series(
-                    scaler.transform(y_te.to_frame()).flatten(), name=y_te.name
-                )
-            else:
-                # label encode discrete targets
-                scaler = LabelEncoder()
-                y_tr = pd.Series(scaler.fit_transform(y_tr), name=y_tr.name)
-                y_te = pd.Series(scaler.transform(y_te), name=y_te.name)
-
             model.fit(X_tr, y_tr)
 
             if col in self.discrete_features:
-                preds = model.predict_proba(X_te)
+                if self.metric_discrete == "roc_auc":
+                    preds = model.predict_proba(X_te)
+                    if len(np.unique(y_tr)) == 2:
+                        preds = preds[:, 1]
+                else:
+                    preds = model.predict(X_te)
             else:
                 preds = model.predict(X_te)
-            # for binary rocauc
-            if (col in self.discrete_features) and (len(np.unique(y_tr)) == 2):
-                preds = preds[:, 1]
             score = metric(y_te, preds)
             dwp[col] = score
         return dwp
@@ -658,181 +626,51 @@ class Projections:
 
     def __init__(
         self,
-        ax: matplotlib.axes.Axes,
-        embedder: Any = PCA(n_components=2),
-        title: str = "Projection",
-        **plot_kwargs,
+        embedder: str = "pca",
+        save_dir: str = None,
+        figsize: tuple = (10, 10),
+        **embedder_kwargs: dict,
     ):
         super().__init__()
-        self.ax = ax
-        self.embedder = embedder
-        self.title = title
-        self.plot_kwargs = plot_kwargs
+        self.figsize = figsize
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        self.embedder_name = embedder
+        EMBEDDERS = {"pca": PCA, "umap": UMAP, "tsne": TSNE}
+        embedder_kwargs["n_components"] = 2
+        self.embedder = EMBEDDERS[embedder.lower()](**embedder_kwargs)
 
     def evaluate(
         self,
         rd: pd.DataFrame,
         sd: pd.DataFrame,
     ):
-        """
-        Expects preprocessed data.
-        """
-        rd, sd = rd.to_numpy(), sd.to_numpy()
-        data = np.concatenate((rd, sd))
+
+        data = pd.concat([rd, sd])
         emb = self.embedder.fit_transform(data)
         rd_emb = emb[: len(rd)]
         sd_emb = emb[len(rd) :]
+
+        fig, ax = plt.subplots(figsize=self.figsize)
 
         sns.scatterplot(
             x=rd_emb[:, 0],
             y=rd_emb[:, 1],
             color="blue",
-            ax=self.ax,
+            ax=ax,
             label="Real",
-            **self.plot_kwargs,
         )
         sns.scatterplot(
             x=sd_emb[:, 0],
             y=sd_emb[:, 1],
             color="red",
-            ax=self.ax,
+            ax=ax,
             label="Synthetic",
-            **self.plot_kwargs,
         )
-        self.ax.set_title(self.title)
+        plt.title(self.embedder_name.upper())
 
-
-class ClassifierTest:
-
-    def __init__(
-        self,
-        discrete_features: list,
-        clf: Any = XGBClassifier(max_depth=3),
-        kfolds: int = 5,
-    ):
-        super().__init__()
-        self.clf = clf
-        self.kfolds = kfolds
-        self.discrete_features = discrete_features
-
-    def onehot(self, data: pd.DataFrame):
-
-        df = []
-        for col in data.columns:
-            if col in self.discrete_features:
-                encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
-                new_data = encoder.fit_transform(data[[col]])
-                new_cols = (
-                    encoder.get_feature_names_out(input_features=[col])
-                    if len(np.unique(data[[col]])) > 2
-                    else [col]
-                )
-                # remove old col name and add new ohe col names
-                self.discrete_features.remove(col)
-                self.discrete_features.extend(new_cols)
-                df.append(pd.DataFrame(new_data, columns=new_cols))
-            else:
-                df.append(data[[col]])
-        df = pd.concat(df, axis=1)
-        return df
-
-    def evaluate(
-        self,
-        rd: pd.DataFrame,
-        sd: pd.DataFrame,
-    ):
-        """
-        Expects non-preprocessed data.
-        """
-        # onehot encode rd and sd together to avoid issues arising from non-occuring categories
-        X = self.onehot(pd.concat([rd, sd], ignore_index=True))
-        numerical_features = [x for x in X.columns if x not in self.discrete_features]
-        numerical_features_idx = [X.columns.get_loc(col) for col in numerical_features]
-        X = X.to_numpy()
-        y = np.concatenate((np.zeros(len(rd)), np.ones(len(sd))))
-
-        skf = StratifiedKFold(n_splits=self.kfolds, shuffle=True, random_state=0)
-        scores = []
-        for idx_tr, idx_te in skf.split(X, y):
-            X_tr, X_te = X[idx_tr], X[idx_te]
-            # fit scaler only on train data to avoid information leakage
-            scaler = StandardScaler()
-            X_tr[:, numerical_features_idx] = scaler.fit_transform(
-                X_tr[:, numerical_features_idx]
-            )
-            X_te[:, numerical_features_idx] = scaler.transform(
-                X_te[:, numerical_features_idx]
-            )
-            y_tr, y_te = y[idx_tr], y[idx_te]
-
-            self.clf.fit(X_tr, y_tr)
-            preds = self.clf.predict_proba(X_te)
-            scores.append(roc_auc_score(y_te, preds[:, 1]))
-
-        return {f"AUC (avg. over {self.kfolds} folds)": np.mean(scores)}
-
-
-class ClusteringTest:
-
-    def __init__(
-        self,
-        discrete_features: list,
-        cls: Any = KMeans(n_clusters=5),
-    ):
-        super().__init__()
-        self.discrete_features = discrete_features
-        self.cls = cls
-
-    def onehot(self, data: pd.DataFrame):
-
-        df = []
-        for col in data.columns:
-            if col in self.discrete_features:
-                encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
-                new_data = encoder.fit_transform(data[[col]])
-                new_cols = (
-                    encoder.get_feature_names_out(input_features=[col])
-                    if len(np.unique(data[[col]])) > 2
-                    else [col]
-                )
-                # remove old col name and add new ohe col names
-                self.discrete_features.remove(col)
-                self.discrete_features.extend(new_cols)
-                df.append(pd.DataFrame(new_data, columns=new_cols))
-            else:
-                df.append(data[[col]])
-        df = pd.concat(df, axis=1)
-        return df
-
-    def evaluate(
-        self,
-        rd: pd.DataFrame,
-        sd: pd.DataFrame,
-    ):
-
-        X = self.onehot(pd.concat([rd, sd], ignore_index=True))
-        numerical_features = [x for x in X.columns if x not in self.discrete_features]
-        X[numerical_features] = StandardScaler().fit_transform(X[numerical_features])
-        X = X.to_numpy()
-
-        clusters = self.cls.fit_predict(X)
-        clusters_rd = clusters[: len(rd)]
-        clusters_sd = clusters[len(rd) :]
-        rd_counts = np.bincount(clusters_rd, minlength=len(np.unique(clusters)))
-        sd_counts = np.bincount(clusters_sd, minlength=len(np.unique(clusters)))
-
-        ratios = {
-            cluster: (
-                sd_counts[cluster] / rd_counts[cluster]
-                if rd_counts[cluster] > 0
-                else np.inf
-            )
-            for cluster in np.unique(clusters)
-        }
-        score = np.mean(
-            (np.fromiter(ratios.values(), dtype=float) - (len(sd) / len(rd))) ** 2
-        )
-        return {"Cluster score": score}
+        if self.save_dir is not None:
+            plt.savefig(f"{self.save_dir}/{self.embedder_name}.png")
 
 
 class Wasserstein:
@@ -973,3 +811,124 @@ class MMD:
             raise ValueError(f"Unsupported kernel {self.kernel}")
 
         return {"MMD": float(score)}
+
+
+class ClassifierTest:
+
+    # TBD: add support for other classifiers than XGB
+
+    def __init__(self, clf: str = "xgb", kfolds: int = 3, random_state: int = 0):
+        super().__init__()
+        self.clf = clf
+        self.kfolds = kfolds
+        self.random_state = random_state
+
+    def evaluate(
+        self,
+        rd: pd.DataFrame,
+        sd: pd.DataFrame,
+    ):
+        """
+        Expects non-preprocessed data.
+        """
+        if self.clf == "xgb":
+            # for xgb classifier use built-in functionality to handle categorical data
+            all = pd.concat([rd, sd])
+            X = pd.DataFrame()
+            for col in rd.columns:
+                try:
+                    X[col] = all[col].astype("float")
+                except ValueError:
+                    X[col] = all[col].astype("category")
+
+            # add XGB support for categorical dtypes
+            model = CLF[self.clf]
+            model.set_params(tree_method="hist", enable_categorical=True)
+
+        else:
+            # TBD: add functionality for other classifiers
+            pass
+
+        y = np.concatenate((np.zeros(len(rd)), np.ones(len(sd))))
+        X = X.to_numpy()
+
+        skf = StratifiedKFold(
+            n_splits=self.kfolds, shuffle=True, random_state=self.random_state
+        )
+        scores = []
+        for idx_tr, idx_te in skf.split(X, y):
+            # TBD: add functionality for other classifiers
+            X_tr, X_te = X[idx_tr], X[idx_te]
+            y_tr, y_te = y[idx_tr], y[idx_te]
+            model.fit(X_tr, y_tr)
+            preds = model.predict_proba(X_te)
+            scores.append(roc_auc_score(y_te, preds[:, 1]))
+
+        return {
+            f"Classifier test AUC ({self.kfolds} folds, {self.clf} classifier)": np.mean(
+                scores
+            )
+        }
+
+
+# class ClusteringTest:
+
+#     def __init__(
+#         self,
+#         discrete_features: list,
+#         cls: Any = KMeans(n_clusters=5),
+#     ):
+#         super().__init__()
+#         self.discrete_features = discrete_features
+#         self.cls = cls
+
+#     def onehot(self, data: pd.DataFrame):
+
+#         df = []
+#         for col in data.columns:
+#             if col in self.discrete_features:
+#                 encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
+#                 new_data = encoder.fit_transform(data[[col]])
+#                 new_cols = (
+#                     encoder.get_feature_names_out(input_features=[col])
+#                     if len(np.unique(data[[col]])) > 2
+#                     else [col]
+#                 )
+#                 # remove old col name and add new ohe col names
+#                 self.discrete_features.remove(col)
+#                 self.discrete_features.extend(new_cols)
+#                 df.append(pd.DataFrame(new_data, columns=new_cols))
+#             else:
+#                 df.append(data[[col]])
+#         df = pd.concat(df, axis=1)
+#         return df
+
+#     def evaluate(
+#         self,
+#         rd: pd.DataFrame,
+#         sd: pd.DataFrame,
+#     ):
+
+#         X = self.onehot(pd.concat([rd, sd], ignore_index=True))
+#         numerical_features = [x for x in X.columns if x not in self.discrete_features]
+#         X[numerical_features] = StandardScaler().fit_transform(X[numerical_features])
+#         X = X.to_numpy()
+
+#         clusters = self.cls.fit_predict(X)
+#         clusters_rd = clusters[: len(rd)]
+#         clusters_sd = clusters[len(rd) :]
+#         rd_counts = np.bincount(clusters_rd, minlength=len(np.unique(clusters)))
+#         sd_counts = np.bincount(clusters_sd, minlength=len(np.unique(clusters)))
+
+#         ratios = {
+#             cluster: (
+#                 sd_counts[cluster] / rd_counts[cluster]
+#                 if rd_counts[cluster] > 0
+#                 else np.inf
+#             )
+#             for cluster in np.unique(clusters)
+#         }
+#         score = np.mean(
+#             (np.fromiter(ratios.values(), dtype=float) - (len(sd) / len(rd))) ** 2
+#         )
+#         return {"Cluster score": score}

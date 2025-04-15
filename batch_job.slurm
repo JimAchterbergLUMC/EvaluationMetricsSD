@@ -3,6 +3,7 @@
 #SBATCH -J evalSD
 #SBATCH --gres=gpu:1
 #SBATCH --mem-per-cpu=16G
+#SBATCH --partition=gpu,highmemgpu
 #SBATCH --time=100:00:00 
 #SBATCH --error=job.%J.err
 #SBATCH --output=job.%J.out
@@ -22,6 +23,7 @@ set -e
 # source $(conda info --base)/etc/profile.d/conda.sh
 
 # create a conda environment
+rm -rf /tmp/jlenv
 mkdir /tmp/jlenv
 chmod 700 /tmp/jlenv
 conda create --prefix /tmp/jlenv/conda_env python=3.10 -y
@@ -30,9 +32,9 @@ conda activate /tmp/jlenv/conda_env
 pip install -r requirements.txt
 
 # run script
-python3 main.py
+python3 tabular_benchmark.py
 
 # cleanup environment
 conda deactivate
-rm -r /tmp/jlenv
+rm -rf /tmp/jlenv
 module purge

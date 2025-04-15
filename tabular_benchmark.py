@@ -12,15 +12,66 @@ from evaluation import benchmark
 
 # ---------------------------------
 # BENCHMARK PARAMETERS
-
+hparams_all = {
+    "tvae": {
+        "n_iter": 300,
+        "n_units_embedding": 128,
+        "encoder_n_layers_hidden": 2,
+        "decoder_n_layers_hidden": 2,
+        "encoder_n_units_hidden": 128,
+        "decoder_n_units_hidden": 128,
+        "lr": 1e-3,
+        "weight_decay": 1e-5,
+        "batch_size": 500,
+        "encoder_dropout": 0,
+        "decoder_dropout": 0,
+        "encoder_nonlin": "relu",
+        "decoder_nonlin": "relu",
+        "loss_factor": 2,
+        "data_encoder_max_clusters": 10,
+        "clipping_value": 0,
+    },
+    "ctgan": {
+        "n_iter": 300,
+        "generator_n_layers_hidden": 2,
+        "discriminator_n_layers_hidden": 2,
+        "generator_n_units_hidden": 256,
+        "discriminator_n_units_hidden": 256,
+        "lr": 2e-4,
+        "weight_decay": 1e-6,
+        "batch_size": 500,
+        "generator_dropout": 0,
+        "discriminator_dropout": 0.2,
+        "generator_nonlin": "relu",
+        "discriminator_nonlin": "leaky_relu",
+        "encoder_max_clusters": 10,
+        "clipping_value": 0,
+        "lambda_gradient_penalty": 10,
+    },
+    "arf": {},
+}
 generator = "arf"
-hparams = {}
+hparams = hparams_all[generator]
 cv_folds = 2
 n_init = 1
 seed = 0
 enable_reproducible_results(seed)
 results = {}
-metrics = {"wasserstein": {}, "prdc": {}, "mmd": {}, "authenticity": {}, "domias": {}}
+# we can add the same metric multiple times with different parameters by adding a dash to the metric name
+metrics = {
+    # "wasserstein": {},
+    # "prdc": {},
+    # "mmd": {},
+    # "authenticity": {},
+    # "domias-pca": {"reduction": "pca", "n_components": 0.95, "random_state": seed},
+    # "domias-umap": {
+    #     "reduction": "umap",
+    #     "n_components": 5,
+    #     "n_neighbours": 5,
+    #     "random_state": seed,
+    # },
+    "classifier_test": {"random_state": seed}
+}
 # ---------------------------------
 # START BENCHMARKING
 
@@ -54,7 +105,7 @@ for fold, (train, test) in enumerate(
         plugin = Plugins().get(generator, **hparams)
         # unconditional generation (we do not consider a specific target feature)
         plugin.fit(X_train)
-        X_syn = plugin.generate(len(test))
+        X_syn = plugin.generate(len(X))
         # evaluation
         results[f"fold: {fold}"][f"init: {i}"] = benchmark(
             X_train.dataframe(),

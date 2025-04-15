@@ -62,9 +62,14 @@ metrics = {
     #     "min_support": 0.2,
     #     "min_confidence": 0.7,
     # },
-    "dwp": {
-        "discrete_features": ["sex"],
-    },
+    # "dwp": {
+    #     "discrete_features": ["sex"],
+    # },
+    "projections": {
+        "embedder": "umap",
+        "figsize": (10, 10),
+        **{},
+    }
 }
 report(
     X.train().dataframe(),
