@@ -28,6 +28,7 @@ from sklearn.manifold import TSNE
 
 from utils import preprocess_prediction
 
+
 # TBD: implement more prediction models
 CLF = {"xgb": XGBClassifier(max_depth=3)}
 REG = {"xgb": XGBRegressor(max_depth=3)}
@@ -69,7 +70,8 @@ class FeatureWisePlots:
     ):
         super().__init__()
         self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
 
         self.discrete_features = discrete_features
         self.plot_cols = plot_cols
@@ -326,7 +328,8 @@ class CorrelationPlots:
         self.figsize = figsize
         self.single_fig = single_fig
         self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         self.numerical_features = [
@@ -634,7 +637,8 @@ class Projections:
         super().__init__()
         self.figsize = figsize
         self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
         self.embedder_name = embedder
         EMBEDDERS = {"pca": PCA, "umap": UMAP, "tsne": TSNE}
         embedder_kwargs["n_components"] = 2
@@ -686,7 +690,11 @@ class Wasserstein:
         rd, sd = rd.to_numpy(), sd.to_numpy()
         results = {}
         results["wasserstein"] = (
-            (SamplesLoss(loss="sinkhorn")(torch.from_numpy(rd), torch.from_numpy(sd)))
+            (
+                SamplesLoss(loss="sinkhorn")(
+                    torch.from_numpy(rd).contiguous(), torch.from_numpy(sd).contiguous()
+                )
+            )
             .numpy()
             .item()
         )
@@ -831,15 +839,20 @@ class ClassifierTest:
         """
         Expects non-preprocessed data.
         """
+
         if self.clf == "xgb":
             # for xgb classifier use built-in functionality to handle categorical data
-            all = pd.concat([rd, sd])
             X = pd.DataFrame()
             for col in rd.columns:
                 try:
-                    X[col] = all[col].astype("float")
-                except ValueError:
-                    X[col] = all[col].astype("category")
+                    rd[col].astype(float)
+                    # align numerical precision between sd and rd to avoid XGB splitting based on precision discrepancies
+                    sd[col], rd[col] = self.align_column_precision(sd[col], rd[col])
+                    X[col] = pd.concat([rd[col], sd[col]])
+                    X[col] = X[col].astype("float")
+                except:
+                    X[col] = pd.concat([rd[col], sd[col]])
+                    X[col] = X[col].astype("category")
 
             # add XGB support for categorical dtypes
             model = CLF[self.clf]
@@ -850,7 +863,9 @@ class ClassifierTest:
             pass
 
         y = np.concatenate((np.zeros(len(rd)), np.ones(len(sd))))
-        X = X.to_numpy()
+        y = pd.Series(y, name="y")
+        X = X.reset_index(drop=True)
+        # X = X.to_numpy()
 
         skf = StratifiedKFold(
             n_splits=self.kfolds, shuffle=True, random_state=self.random_state
@@ -858,7 +873,7 @@ class ClassifierTest:
         scores = []
         for idx_tr, idx_te in skf.split(X, y):
             # TBD: add functionality for other classifiers
-            X_tr, X_te = X[idx_tr], X[idx_te]
+            X_tr, X_te = X.iloc[idx_tr, :], X.iloc[idx_te, :]
             y_tr, y_te = y[idx_tr], y[idx_te]
             model.fit(X_tr, y_tr)
             preds = model.predict_proba(X_te)
@@ -869,6 +884,40 @@ class ClassifierTest:
                 scores
             )
         }
+
+    def align_column_precision(
+        self, target_series: pd.Series, reference_series: pd.Series
+    ):
+        """
+        Aligns target series precision according to the meaningful precision of the reference series.
+        Reference series also gets rounded to its meaningful precision.
+        Meaningful precision means most granular precision without trailing zeros.
+        """
+
+        def get_max_decimal_places(series):
+            def count_decimal_places(x):
+                try:
+                    s = (
+                        format(x, ".16f").rstrip("0").rstrip(".")
+                    )  # Full precision float, no trailing zeros
+                    if "." in s:
+                        return len(s.split(".")[-1])
+                    return 0
+                except:
+                    return 0  # In case of NaNs or errors
+
+            return series.dropna().apply(count_decimal_places).max()
+
+        # Find max meaningful precision across both
+        precision = get_max_decimal_places(reference_series)
+        target_series = target_series.round(precision)
+        reference_series = reference_series.round(precision)
+
+        target_series, reference_series = target_series.astype(
+            float
+        ), reference_series.astype(float)
+
+        return target_series, reference_series
 
 
 # class ClusteringTest:

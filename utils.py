@@ -1,5 +1,5 @@
 # contains helper functions for preprocessing
-
+import os
 import pandas as pd
 from sklearn.preprocessing import (
     OneHotEncoder,
@@ -129,3 +129,13 @@ def determine_feature_types(df: pd.DataFrame, threshold: int = 15):
             categorical.append(col)
 
     return numerical, categorical
+
+
+def clear_dir(directory: str):
+    # remove all files from specified directory
+    if not os.path.exists(directory):
+        return None
+    for item in os.listdir(directory):
+        filepath = os.path.join(directory, item)
+        if os.path.isfile(filepath):
+            os.remove(filepath)

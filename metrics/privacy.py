@@ -8,7 +8,9 @@ from sklearn.metrics import roc_auc_score, r2_score, root_mean_squared_error
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from xgboost import XGBClassifier, XGBRegressor
-
+import os
+from matplotlib import pyplot as plt
+import seaborn as sns
 from utils import preprocess_prediction
 
 # TBD: implement more prediction models
@@ -184,9 +186,39 @@ class AttributeInferenceAttack:
         return dict_
 
 
-class NNAA:
-    def __init__(self, metric="euclidean"):
-        pass
+class NNDR:
+    def __init__(
+        self,
+        metric="euclidean",
+        plot="boxplot",
+        save_dir: str = None,
+        figsize: tuple = (10, 10),
+    ):
+        self.metric = metric
+        self.plot = plot
+        self.figsize = figsize
+        self.save_dir = save_dir
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
-        pass
+        # calculate distance from sd to nearest rd -> normalized by distance to next nearest rd
+        nn = NearestNeighbors(n_neighbors=2, metric=self.metric)
+        nn.fit(rd)
+        distances, indices = nn.kneighbors(sd)
+        nearest_dist = distances[:, 0]
+        second_nearest_dist = distances[:, 1]
+        nndr = nearest_dist / second_nearest_dist
+
+        if self.plot == "boxplot":
+            fig, axs = plt.subplots(figsize=self.figsize)
+            sns.boxplot(nndr, ax=axs)
+            plt.title("NNDR")
+            plt.tight_layout()
+            plt.savefig(f"{self.save_dir}/nndr.png")
+        else:
+            return np.mean(nndr)
+
+        # retrieve samples for which NNDR < 0.5
+        # for those samples display sd and rd side-by-side
+        # but side-by-side display is not very meaningful, since how do we know which features indicate "unnatural closeness"

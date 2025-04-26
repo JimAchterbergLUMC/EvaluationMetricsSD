@@ -20,7 +20,7 @@ from metrics.fidelity import (
     MMD,
 )
 
-from metrics.privacy import DOMIAS, Authenticity
+from metrics.privacy import DOMIAS, Authenticity, NNDR
 
 METRICS = {
     "domain_constraints": DomainConstraint,
@@ -53,8 +53,6 @@ def benchmark(
     """
 
     # one hot, label encode, standard scale
-    # TBD: separate metric computation for those which do not require preprocessing
-    # -> no preprocessing: featurewise plots, correlations, dwp, domain constraint, utility metrics, projections maybe? classifier test (due to skf),
     X_tr_scaled, X_te_scaled, X_syn_scaled = preprocess_eval(
         X_train, X_test, X_syn, ohe_threshold=15, normalization="standard"
     )
@@ -108,7 +106,7 @@ def report(
 
         if key == "domain_constraints":
             constraints = DomainConstraint(**metrics["domain_constraints"]).evaluate(
-                test, syn
+                test, syn[-len(test) :]
             )
             with open(f"{save_dir}/domain_constraints.txt", "w") as f:
                 for c, vals in constraints.items():
@@ -118,20 +116,26 @@ def report(
 
         elif key == "marginal_plots":
             metrics["marginal_plots"]["save_dir"] = f"{save_dir}/marginal_plots"
-            plots = FeatureWisePlots(**metrics["marginal_plots"]).evaluate(test, syn)
+            plots = FeatureWisePlots(**metrics["marginal_plots"]).evaluate(
+                test, syn[-len(test) :]
+            )
 
         elif key == "correlation_plots":
             metrics["correlation_plots"]["save_dir"] = f"{save_dir}/correlation_plots"
-            plots = CorrelationPlots(**metrics["correlation_plots"]).evaluate(test, syn)
+            plots = CorrelationPlots(**metrics["correlation_plots"]).evaluate(
+                test, syn[-len(test) :]
+            )
 
         elif key == "arm":
-            arm = AssociationRuleMining(**metrics["arm"]).evaluate(test, syn)
+            arm = AssociationRuleMining(**metrics["arm"]).evaluate(
+                test, syn[-len(test) :]
+            )
             with open(f"{save_dir}/association_rules.txt", "w") as f:
                 for k, v in arm.items():
                     f.write(f"{k}: {v} \n")
 
         elif key == "dwp":
-            dwp = DWP(**metrics["dwp"]).evaluate(test, syn)
+            dwp = DWP(**metrics["dwp"]).evaluate(test, syn[-len(test) :])
             with open(f"{save_dir}/dimensionwise_prediction.txt", "w") as f:
                 for k, v in dwp.items():
                     f.write(f"{k}: \n")
@@ -140,11 +144,26 @@ def report(
         elif key == "projections":
             metrics["projections"]["save_dir"] = f"{save_dir}/projections"
             train_scaled, test_scaled, syn_scaled = preprocess_eval(
-                train, test, syn, ohe_threshold=15, normalization="standard"
+                train,
+                test,
+                syn[-len(test) :],
+                ohe_threshold=15,
+                normalization="standard",
             )
             projections = Projections(**metrics["projections"]).evaluate(
                 test_scaled, syn_scaled
             )
+        elif key == "nndr":
+            # compute distances w.r.t. training set (in normalized space)
+            metrics["nndr"]["save_dir"] = f"{save_dir}/nndr"
+            train_scaled, test_scaled, syn_scaled = preprocess_eval(
+                train,
+                test,
+                syn[: len(train)],
+                ohe_threshold=15,
+                normalization="standard",
+            )
+            nndr = NNDR(**metrics["nndr"]).evaluate(train_scaled, syn_scaled)
 
         else:
             raise Exception(f"metric {key} not implemented for reporting.")
