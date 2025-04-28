@@ -133,6 +133,7 @@ class Authenticity:
 class AttributeInferenceAttack:
 
     # TBD: how to compare with "naive" score
+    # TBD: use XGB native support for categorical features
 
     def __init__(
         self,
@@ -183,7 +184,7 @@ class AttributeInferenceAttack:
             else:
                 preds = model.predict(X_te)
             dict_[target] = metric(y_te, preds)
-        return dict_
+        return {"Attribute Inference Attack": dict_}
 
 
 class NNDR:
@@ -210,6 +211,9 @@ class NNDR:
         second_nearest_dist = distances[:, 1]
         nndr = nearest_dist / second_nearest_dist
 
+        if self.save_dir is None:
+            return np.mean(nndr)
+
         if self.plot == "boxplot":
             fig, axs = plt.subplots(figsize=self.figsize)
             sns.boxplot(nndr, ax=axs)
@@ -217,8 +221,6 @@ class NNDR:
             plt.tight_layout()
             plt.savefig(f"{self.save_dir}/nndr.png")
         else:
-            return np.mean(nndr)
-
-        # retrieve samples for which NNDR < 0.5
-        # for those samples display sd and rd side-by-side
-        # but side-by-side display is not very meaningful, since how do we know which features indicate "unnatural closeness"
+            raise Exception(
+                "Currently only boxplot is implemented as plot method for NNDR."
+            )

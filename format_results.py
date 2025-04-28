@@ -4,7 +4,7 @@ import json
 import pandas as pd
 
 # open json file
-generator = "arf"
+generator = "ctgan"
 with open(f"results/benchmark/{generator}.json", "r") as f:
     data = json.load(f)
 
@@ -21,13 +21,7 @@ for fold, metrics in data.items():
             fold_data.append(values)
 df = pd.DataFrame(fold_data)
 df["timer"] = data["timer"]
-print(df)
 
-per_fold = df.groupby("fold").mean()
-print(per_fold)
+print(df.mean().round(3))
 
-avg = per_fold.mean()
-std = per_fold.std()
-
-print(avg)
-print(std)
+print(df.std().round(3))

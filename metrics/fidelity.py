@@ -1,13 +1,9 @@
-from typing import Any
 import os
-import matplotlib.axes
 import numpy as np
-import matplotlib
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.metrics import roc_auc_score, root_mean_squared_error
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
 from torchvision import transforms as transforms
 from geomloss import SamplesLoss
 import torch
@@ -19,7 +15,6 @@ from sklearn.preprocessing import (
     LabelEncoder,
     OneHotEncoder,
     KBinsDiscretizer,
-    StandardScaler,
 )
 from mlxtend.frequent_patterns import apriori, association_rules
 import seaborn as sns
@@ -315,7 +310,7 @@ class FeatureWisePlots:
             return axes
 
 
-class CorrelationPlots:
+class CorrelationMatrices:
     def __init__(
         self,
         discrete_features: list,
@@ -323,6 +318,11 @@ class CorrelationPlots:
         figsize: tuple = (10, 10),
         single_fig: bool = True,
     ):
+        """
+        Compute correlation matrices of SD and RD.
+        Saves correlation matrices as figures in save_dir if save_dir is not None.
+        Else, returns the correlation matrices for further processing.
+        """
         super().__init__()
         self.discrete_features = discrete_features
         self.figsize = figsize
@@ -338,6 +338,9 @@ class CorrelationPlots:
 
         corr_rd = self.compute_mixed_correlation_matrix(rd)
         corr_sd = self.compute_mixed_correlation_matrix(sd)
+
+        if self.save_dir is None:
+            return {"Correlation RD": corr_rd, "Correlation SD": corr_sd}
 
         if self.single_fig:
             fig, axs = plt.subplots(ncols=2, figsize=self.figsize)
@@ -371,7 +374,6 @@ class CorrelationPlots:
             axs[1].set_title("Synthetic")
             plt.tight_layout()
             plt.savefig(f"{self.save_dir}/correlation_all.png")
-            return plt
         else:
             fig1, axs = plt.subplots(figsize=self.figsize)
             sns.heatmap(
@@ -407,7 +409,6 @@ class CorrelationPlots:
             axs.set_title("Synthetic")
             plt.tight_layout()
             plt.savefig(f"{self.save_dir}/correlation_sd.png")
-            return fig1, fig2
 
     def compute_mixed_correlation_matrix(self, data):
 
@@ -491,10 +492,14 @@ class AssociationRuleMining:
         precision, recall = self._precision_recall(sd_rules, rd_rules)
 
         return {
-            "#Real rules": len(rd_rules),
-            "#Synthetic rules": len(sd_rules),
-            "Precision": precision,
-            "Recall": recall,
+            f"ARM #Real rules (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": len(
+                rd_rules
+            ),
+            "ARM #Synthetic rules (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": len(
+                sd_rules
+            ),
+            "ARM Precision (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": precision,
+            "ARM Recall (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": recall,
         }
 
     def _rule_mining(
@@ -567,34 +572,85 @@ class DWP:
 
     def __init__(
         self,
-        discrete_features,
         model_name: str = "xgb",
         metric_numerical: str = "rmse",
         metric_discrete: str = "roc_auc",
         k: int = 3,
     ):
         super().__init__()
-        self.discrete_features = discrete_features
         self.model_name = model_name
         self.metric_numerical = metric_numerical
         self.metric_discrete = metric_discrete
         self.k = k
 
+        # if not reduced should return something like {DWP {k} {XGB} {Real/Synthetic} {Attribute} {AUC/RMSE}: score}
+        # else if reduced by discrepancy: {DWP {k} {XGB} {Attribute} {AUC/RMSE}: score_discrepancy}
+        # else if reduced by avg. discrepancy: {DWP {k} {XGB} {AUC/RMSE}: avg. score_discrepancy}
+
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
 
-        results_rd = []
-        results_sd = []
+        if self.model_name == "xgb":
+            # for xgb classifier use built-in functionality to handle categorical data
+            x_rd = pd.DataFrame()
+            x_sd = pd.DataFrame()
+            self.discretes = []
+            for col in rd.columns:
+                try:
+                    x_rd[col] = rd[col].astype("float")
+                    x_sd[col] = sd[col].astype("float")
+                except:
+                    x_rd[col] = rd[col].astype("category")
+                    x_sd[col] = sd[col].astype("category")
+                    self.discretes.append(col)
+
+        else:
+            # TBD: add functionality for other classifiers
+            pass
+
+        scores_sd = {col: [] for col in x_rd.columns}
+        scores_rd = {col: [] for col in x_rd.columns}
         cv = KFold(n_splits=self.k)
         for idx_tr, idx_te in cv.split(rd):
-            rd_train, rd_test = rd.iloc[idx_tr], rd.iloc[idx_te]
-            sd_train = sd.iloc[idx_tr]
+            rd_train, rd_test = x_rd.iloc[idx_tr], x_rd.iloc[idx_te]
+            sd_train = x_sd.iloc[idx_tr]
+            for col in rd_train.columns:
+                # select appropriate model and performance metric
+                if col in self.discretes:
+                    model = CLF[self.model_name]
+                    metric = ACCURACY_METRICS[self.metric_discrete]
+                else:
+                    model = REG[self.model_name]
+                    metric = ACCURACY_METRICS[self.metric_numerical]
 
-            results_rd.append(self.dwp(train=rd_train, test=rd_test))
-            results_sd.append(self.dwp(train=sd_train, test=rd_test))
-        results = {}
-        results["Real"] = pd.DataFrame(results_rd).mean().to_dict()
-        results["Synthetic"] = pd.DataFrame(results_sd).mean().to_dict()
-        return results
+                # fit on sd and test on rd
+                model.fit(sd_train.drop(col, axis=1), sd_train[col])
+                preds_sd = self._predict(sd_train, rd_test, col, model)
+                score_sd = metric(rd_test[col], preds_sd)
+                scores_sd[col].append(score_sd)
+
+                # fit and test on rd
+                model.fit(rd_train.drop(col, axis=1), rd_train[col])
+                preds_rd = self._predict(rd_train, rd_test, col, model)
+                score_rd = metric(rd_test[col], preds_rd)
+                scores_rd[col].append(score_rd)
+
+        avg_scores_sd = {
+            col: sum(scores) / len(scores) for col, scores in scores_sd.items()
+        }
+        avg_scores_rd = {
+            col: sum(scores) / len(scores) for col, scores in scores_rd.items()
+        }
+
+        return {"DWP Real": avg_scores_rd, "DWP Synthetic": avg_scores_sd}
+
+    def _predict(self, train, test, target, model):
+        if target in self.discretes and self.metric_discrete == "roc_auc":
+            if len(np.unique(train[target])) == 2:
+                return model.predict_proba(test.drop(target, axis=1))[:, 1]
+            else:
+                return model.predict_proba(test.drop(target, axis=1))
+        else:
+            return model.predict(test.drop(target, axis=1))
 
     def dwp(self, train: pd.DataFrame, test: pd.DataFrame):
         dwp = {}
@@ -632,6 +688,7 @@ class Projections:
         embedder: str = "pca",
         save_dir: str = None,
         figsize: tuple = (10, 10),
+        plot: str = "scatter",
         **embedder_kwargs: dict,
     ):
         super().__init__()
@@ -641,37 +698,62 @@ class Projections:
             os.makedirs(self.save_dir, exist_ok=True)
         self.embedder_name = embedder
         EMBEDDERS = {"pca": PCA, "umap": UMAP, "tsne": TSNE}
-        embedder_kwargs["n_components"] = 2
-        self.embedder = EMBEDDERS[embedder.lower()](**embedder_kwargs)
+        self.embedder = EMBEDDERS[embedder.lower()]
+        self.embedder_kwargs = embedder_kwargs
+        self.plot = plot
 
     def evaluate(
         self,
         rd: pd.DataFrame,
         sd: pd.DataFrame,
     ):
+        if self.plot == "scatter":
+            self.embedder_kwargs["n_components"] = 2
+        else:
+            if "n_components" not in self.embedder_kwargs.keys():
+                raise Exception(
+                    "Please input n_components for Projections as embedder_kwargs when not using scatterplot, so the metric knows how many components to plot."
+                )
 
         data = pd.concat([rd, sd])
+        self.embedder = self.embedder(**self.embedder_kwargs)
         emb = self.embedder.fit_transform(data)
         rd_emb = emb[: len(rd)]
         sd_emb = emb[len(rd) :]
 
-        fig, ax = plt.subplots(figsize=self.figsize)
+        if self.plot == "scatter":
+            # scatterplot of first two components
+            fig, ax = plt.subplots(figsize=self.figsize)
+            sns.scatterplot(
+                x=rd_emb[:, 0],
+                y=rd_emb[:, 1],
+                color="blue",
+                ax=ax,
+                label="Real",
+            )
+            sns.scatterplot(
+                x=sd_emb[:, 0],
+                y=sd_emb[:, 1],
+                color="red",
+                ax=ax,
+                label="Synthetic",
+            )
+        elif self.plot == "marginal":
+            n_cols = min(3, rd_emb.shape[1])
+            n_rows = int(np.ceil(rd_emb.shape[1] / n_cols))
+            fig, axs = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=self.figsize)
+            axs = axs.flatten()
+            for i in range(rd_emb.shape[1]):
+                sns.kdeplot(rd_emb[:, i], ax=axs[i], color="blue", alpha=0.3, fill=True)
+                sns.kdeplot(sd_emb[:, i], ax=axs[i], color="red", alpha=0.3, fill=True)
+                axs[i].set_title(f"Component {i+1}")
+                axs[i].set_xlabel("")
+                axs[i].set_ylabel("")
+            for ax in axs[rd_emb.shape[1] :]:
+                ax.axis("off")
 
-        sns.scatterplot(
-            x=rd_emb[:, 0],
-            y=rd_emb[:, 1],
-            color="blue",
-            ax=ax,
-            label="Real",
-        )
-        sns.scatterplot(
-            x=sd_emb[:, 0],
-            y=sd_emb[:, 1],
-            color="red",
-            ax=ax,
-            label="Synthetic",
-        )
-        plt.title(self.embedder_name.upper())
+        fig.suptitle(self.embedder_name.upper())
+        plt.tight_layout()
 
         if self.save_dir is not None:
             plt.savefig(f"{self.save_dir}/{self.embedder_name}.png")
@@ -728,9 +810,12 @@ class PRDC:
 
         coverage = (rd_sd_distances.min(axis=1) < rd_distances).mean()
 
-        return dict(
-            precision=precision, recall=recall, density=density, coverage=coverage
-        )
+        return {
+            f"precision (k={self.k})": precision,
+            f"recall (k={self.k})": recall,
+            f"density (k={self.k})": density,
+            f"coverage (k={self.k})": coverage,
+        }
 
     def _get_kth_value(self, unsorted: np.ndarray, k: int, axis: int = -1):
         indices = np.argpartition(unsorted, k, axis=axis)[..., :k]
@@ -818,7 +903,7 @@ class MMD:
         else:
             raise ValueError(f"Unsupported kernel {self.kernel}")
 
-        return {"MMD": float(score)}
+        return {f"MMD ({self.kernel})": float(score)}
 
 
 class ClassifierTest:
@@ -918,66 +1003,3 @@ class ClassifierTest:
         ), reference_series.astype(float)
 
         return target_series, reference_series
-
-
-# class ClusteringTest:
-
-#     def __init__(
-#         self,
-#         discrete_features: list,
-#         cls: Any = KMeans(n_clusters=5),
-#     ):
-#         super().__init__()
-#         self.discrete_features = discrete_features
-#         self.cls = cls
-
-#     def onehot(self, data: pd.DataFrame):
-
-#         df = []
-#         for col in data.columns:
-#             if col in self.discrete_features:
-#                 encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
-#                 new_data = encoder.fit_transform(data[[col]])
-#                 new_cols = (
-#                     encoder.get_feature_names_out(input_features=[col])
-#                     if len(np.unique(data[[col]])) > 2
-#                     else [col]
-#                 )
-#                 # remove old col name and add new ohe col names
-#                 self.discrete_features.remove(col)
-#                 self.discrete_features.extend(new_cols)
-#                 df.append(pd.DataFrame(new_data, columns=new_cols))
-#             else:
-#                 df.append(data[[col]])
-#         df = pd.concat(df, axis=1)
-#         return df
-
-#     def evaluate(
-#         self,
-#         rd: pd.DataFrame,
-#         sd: pd.DataFrame,
-#     ):
-
-#         X = self.onehot(pd.concat([rd, sd], ignore_index=True))
-#         numerical_features = [x for x in X.columns if x not in self.discrete_features]
-#         X[numerical_features] = StandardScaler().fit_transform(X[numerical_features])
-#         X = X.to_numpy()
-
-#         clusters = self.cls.fit_predict(X)
-#         clusters_rd = clusters[: len(rd)]
-#         clusters_sd = clusters[len(rd) :]
-#         rd_counts = np.bincount(clusters_rd, minlength=len(np.unique(clusters)))
-#         sd_counts = np.bincount(clusters_sd, minlength=len(np.unique(clusters)))
-
-#         ratios = {
-#             cluster: (
-#                 sd_counts[cluster] / rd_counts[cluster]
-#                 if rd_counts[cluster] > 0
-#                 else np.inf
-#             )
-#             for cluster in np.unique(clusters)
-#         }
-#         score = np.mean(
-#             (np.fromiter(ratios.values(), dtype=float) - (len(sd) / len(rd))) ** 2
-#         )
-#         return {"Cluster score": score}

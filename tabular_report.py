@@ -1,4 +1,4 @@
-# create an interpretable evaluation report for a single (best) SD generator
+# create an interpretable evaluation report for a single SD generator
 
 
 from synthcity.plugins.core.dataloader import GenericDataLoader
@@ -36,19 +36,19 @@ enable_reproducible_results(seed)
 # START REPORTING
 
 # load data
-dataset = openml.datasets.get_dataset(4541)
-X, _, _, _ = dataset.get_data(dataset_format="dataframe")
-X = X.drop(["encounter_id", "patient_nbr"], axis=1)
-X = X[:10000]
+# dataset = openml.datasets.get_dataset(4541)
+# X, _, _, _ = dataset.get_data(dataset_format="dataframe")
+# X = X.drop(["encounter_id", "patient_nbr"], axis=1)
+# X = X[:10000]
 
-# from sklearn.datasets import load_diabetes
-# import pandas as pd
+from sklearn.datasets import load_diabetes
+import pandas as pd
 
-# X, y = load_diabetes(return_X_y=True, as_frame=True, scaled=False)
-# X = pd.concat([X, y], axis=1)
+X, y = load_diabetes(return_X_y=True, as_frame=True, scaled=False)
+X = pd.concat([X, y], axis=1)
 
 
-X = GenericDataLoader(data=X, random_state=seed, train_size=0.8)
+X = GenericDataLoader(data=X, random_state=seed, train_size=0.7)
 
 hparams["random_state"] = seed
 plugin = Plugins().get(generator, **hparams)
@@ -82,12 +82,13 @@ metrics = {
     # "dwp": {
     #     "discrete_features": ["sex"],
     # },
-    # "projections": {
-    #     "embedder": "umap",
-    #     "figsize": (10, 10),
-    #     **{},
-    # },
-    "nndr": {}
+    "projections": {
+        "embedder": "pca",
+        "plot": "marginal",
+        "figsize": (10, 10),
+        **{"n_components": 0.9},
+    },
+    # "nndr": {"plot": "boxplot"}
 }
 report(
     X.train().dataframe(),

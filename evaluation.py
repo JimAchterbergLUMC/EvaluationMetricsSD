@@ -1,4 +1,5 @@
-# computes metrics to construct a benchmark or evaluation report
+# TBD:
+# better support for preprocessing than using ohe_threshold
 
 import pandas as pd
 import os
@@ -12,8 +13,7 @@ from metrics.fidelity import (
     DWP,
     FeatureWisePlots,
     ClassifierTest,
-    # ClusteringTest,
-    CorrelationPlots,
+    CorrelationMatrices,
     Projections,
     PRDC,
     Wasserstein,
@@ -28,8 +28,7 @@ METRICS = {
     "dwp": DWP,
     "featurewise_plots": FeatureWisePlots,
     "classifier_test": ClassifierTest,
-    # "clustering_test": ClusteringTest,
-    "correlation_plots": CorrelationPlots,
+    "correlation_matrices": CorrelationMatrices,
     "projections": Projections,
     "prdc": PRDC,
     "wasserstein": Wasserstein,
@@ -46,7 +45,7 @@ def benchmark(
     metrics: dict,
 ):
     """
-    Evaluates a bunch of metrics for a synthetic dataset w.r.t. a real test set.
+    Quantitatively evaluates a bunch of metrics for a synthetic dataset w.r.t. a real test set.
     Returns a dictionary like {metric_name:result}.
 
     metrics: dict of dicts. Each metric has a dict containing parameters relevant to initializing that metric.
@@ -64,16 +63,16 @@ def benchmark(
         if "domias" in metric_.lower():
             # domias requires training data and uses full SD set
             metric_result = metric.evaluate(X_tr_scaled, X_te_scaled, X_syn_scaled)
-        elif "authenticity" in metric_.lower():
-            # authenticity should be computed w.r.t. training data (so we also take that size synthetic data)
+        elif "authenticity" in metric_.lower() or "nndr" in metric_.lower():
+            # authenticity and nndr should be computed w.r.t. training data (so we also take that size synthetic data)
             metric_result = metric.evaluate(
                 X_tr_scaled,
                 X_syn_scaled[: len(X_train)],
             )
-        elif "classifier_test" in metric_.lower():
-            # classifier metric performs CV and thus preprocessing internally
+        elif "classifier_test" in metric_.lower() or "dwp" in metric_.lower():
+            # classifier metric and dwp perform cross-validation and thus preprocessing internally
             metric_result = metric.evaluate(
-                X_train,
+                X_test,
                 X_syn[-len(X_test) :],
             )
         else:
@@ -120,9 +119,11 @@ def report(
                 test, syn[-len(test) :]
             )
 
-        elif key == "correlation_plots":
-            metrics["correlation_plots"]["save_dir"] = f"{save_dir}/correlation_plots"
-            plots = CorrelationPlots(**metrics["correlation_plots"]).evaluate(
+        elif key == "correlation_matrices":
+            metrics["correlation_matrices"][
+                "save_dir"
+            ] = f"{save_dir}/correlation_matrices"
+            plots = CorrelationMatrices(**metrics["correlation_matrices"]).evaluate(
                 test, syn[-len(test) :]
             )
 
@@ -167,9 +168,3 @@ def report(
 
         else:
             raise Exception(f"metric {key} not implemented for reporting.")
-
-    # -------------------------------------------------------
-    # privacy
-    # note that NNAA and authenticity should be w.r.t. training set
-
-    # MIA: make assumption regarding
