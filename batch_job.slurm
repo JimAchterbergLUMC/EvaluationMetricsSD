@@ -19,9 +19,6 @@ module add library/cudnn/12.2/cudnn
 # end if anything fails
 set -e
 
-# initialize conda
-# source $(conda info --base)/etc/profile.d/conda.sh
-
 # create a conda environment
 rm -rf /tmp/jlenv
 mkdir /tmp/jlenv
@@ -29,7 +26,7 @@ chmod 700 /tmp/jlenv
 conda create --prefix /tmp/jlenv/conda_env python=3.10 -y
 conda activate /tmp/jlenv/conda_env
 # install packages
-pip install -r requirements.txt
+pip install --no-cache-dir -r requirements.txt
 
 # run script
 python3 tabular_benchmark.py
