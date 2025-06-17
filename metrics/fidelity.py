@@ -2,7 +2,7 @@ import os
 import numpy as np
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.model_selection import StratifiedKFold, KFold
-from sklearn.metrics import roc_auc_score, root_mean_squared_error
+from sklearn.metrics import roc_auc_score, root_mean_squared_error, r2_score
 from sklearn.decomposition import PCA
 from torchvision import transforms as transforms
 from geomloss import SamplesLoss
@@ -10,7 +10,7 @@ import torch
 from sklearn import metrics
 from matplotlib import pyplot as plt
 import pandas as pd
-from scipy import stats
+from scipy import stats, spatial
 from sklearn.preprocessing import (
     LabelEncoder,
     OneHotEncoder,
@@ -24,17 +24,24 @@ from sklearn.manifold import TSNE
 from utils import preprocess_prediction
 
 
-# TBD: implement more prediction models
+# TBD:
+# - implement more prediction models
+# - automatic scaling and layout of images when n_features increases
+
 CLF = {"xgb": XGBClassifier(max_depth=3)}
 REG = {"xgb": XGBRegressor(max_depth=3)}
 
 # TBD: implement more accuracy metrics
 ACCURACY_METRICS = {
     "rmse": root_mean_squared_error,
+    "r2": r2_score,
     "roc_auc": lambda y_true, y_score: roc_auc_score(
         y_true, y_score, average="micro", multi_class="ovr"
     ),
 }
+
+
+# each quantitative metric returns a dictionary like {metric_name_and_params:score}
 
 
 class DomainConstraint:
@@ -46,9 +53,8 @@ class DomainConstraint:
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         result = {}
         for constraint in self.constraint_list:
-            result[constraint] = {}
-            result[constraint]["Real"] = rd.eval(constraint).mean()
-            result[constraint]["Synthetic"] = sd.eval(constraint).mean()
+            result[f"Constraint {constraint} (RD)"] = rd.eval(constraint).mean()
+            result[f"Constraint {constraint} (SD)"] = sd.eval(constraint).mean()
 
         return result
 
@@ -58,13 +64,13 @@ class FeatureWisePlots:
     def __init__(
         self,
         discrete_features: list,
-        save_dir: str = None,
+        save_dir: str = "results",
         plot_cols: int = 3,
         figsize: tuple = (10, 10),
         single_fig: bool = True,
     ):
         super().__init__()
-        self.save_dir = save_dir
+        self.save_dir = f"{save_dir}/featurewise_plots"
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
 
@@ -85,8 +91,6 @@ class FeatureWisePlots:
         axes = axes.flatten()  # Flatten in case of a single row
 
         for i, feature in enumerate(self.numerical_features + self.discrete_features):
-            ax = axes[i]
-
             if feature in self.numerical_features:
                 sns.histplot(
                     rd[feature],
@@ -96,7 +100,7 @@ class FeatureWisePlots:
                     label="Real",
                     color="blue",
                     alpha=0.3,
-                    ax=ax,
+                    ax=axes[i],
                 )
                 sns.histplot(
                     sd[feature],
@@ -106,34 +110,12 @@ class FeatureWisePlots:
                     label="Synthetic",
                     color="red",
                     alpha=0.3,
-                    ax=ax,
+                    ax=axes[i],
+                )
+                axes[i].set_ylabel(
+                    "Density",
                 )
 
-                # Compute statistics
-                rd_mean, rd_std = rd[feature].mean(), rd[feature].std()
-                sd_mean, sd_std = sd[feature].mean(), sd[feature].std()
-
-                # Annotate with mean and std
-                ax.text(
-                    0.05,
-                    0.95,
-                    f"μ={rd_mean:.2f}, σ={rd_std:.2f}\n",
-                    transform=ax.transAxes,
-                    fontsize=10,
-                    color="blue",
-                    verticalalignment="top",
-                    # bbox=dict(facecolor="white", alpha=0.5),
-                )
-                ax.text(
-                    0.05,
-                    0.85,
-                    f"μ={sd_mean:.2f}, σ={sd_std:.2f}\n",
-                    transform=ax.transAxes,
-                    fontsize=10,
-                    color="red",
-                    verticalalignment="top",
-                    # bbox=dict(facecolor="white", alpha=0.5),
-                )
             else:
                 rd_counts = (
                     rd[feature].value_counts(normalize=True).sort_index() * 100
@@ -152,63 +134,44 @@ class FeatureWisePlots:
                     y="value",
                     hue="variable",
                     data=plot_data,
-                    ax=ax,
+                    ax=axes[i],
                     palette=["blue", "red"],
                     alpha=0.5,
                 )
-                ax.set_ylabel("Proportion (%)")
-
-                # Annotate with category percentages
-                annot_real = "\n".join(
-                    [f"{cat}: {rd_counts[cat]:.1f}%" for cat in categories]
-                )
-                annot_syn = "\n".join([f"{sd_counts[cat]:.1f}%" for cat in categories])
-
-                ax.text(
-                    0.05,
-                    0.95,
-                    annot_real,
-                    color="blue",
-                    transform=ax.transAxes,
-                    fontsize=10,
-                    verticalalignment="top",
-                    # bbox=dict(facecolor="white", alpha=0.5),
+                axes[i].set_ylabel(
+                    "Proportion (%)",
                 )
 
-                ax.text(
-                    0.55,
-                    0.95,
-                    annot_syn,
-                    color="red",
-                    transform=ax.transAxes,
-                    fontsize=10,
-                    verticalalignment="top",
-                    # bbox=dict(facecolor="white", alpha=0.5),
-                )
-
-            ax.set_xlabel("")
-            ax.set_title(feature)
-
-        # Remove unused subplots if any
-        for j in range(i + 1, len(axes)):
-            fig.delaxes(axes[j])
-        np.delete(axes, list(range(i + 1, len(axes))))
-
-        if self.single_fig:
-            legend = axes[-1].legend()
-            axes[-1].get_legend().remove()
-
-            fig.legend(
-                legend.legend_handles,
-                [t.get_text() for t in legend.get_texts()],
-                loc="lower right",
-                fontsize=12,
+            axes[i].set_xlabel("")
+            axes[i].tick_params(
+                axis="x",
+            )
+            axes[i].tick_params(
+                axis="y",
+            )
+            axes[i].set_title(
+                feature,
             )
 
-            plt.tight_layout()
+        # Remove unused subplots if any
+        for ax in axes[len(self.discrete_features + self.numerical_features) :]:
+            ax.axis("off")
 
-            if self.save_dir is not None:
-                plt.savefig(f"{self.save_dir}/all_features.png")
+        if self.single_fig:
+            fig.legend(
+                labels=["Real", "Synthetic"],
+                loc="upper right",
+                bbox_to_anchor=(0.98, 0.98),
+                ncols=2,
+            )
+            fig.tight_layout()
+            fig.subplots_adjust(top=0.88)
+            for ax in axes:
+                ax.legend().set_visible(False)
+
+            sns.despine(fig)
+
+            plt.savefig(f"{self.save_dir}/all_features.pdf")
 
             return plt
 
@@ -297,13 +260,10 @@ class FeatureWisePlots:
                 if ax.get_legend():
                     new_ax.legend()
 
-                # Save and close
-                if self.save_dir is not None:
-
-                    fig.savefig(
-                        f"{self.save_dir}/{ax.get_title()}.png",
-                        bbox_inches="tight",
-                    )
+                fig.savefig(
+                    f"{self.save_dir}/{ax.get_title()}.pdf",
+                    bbox_inches="tight",
+                )
 
                 plt.close(fig)
 
@@ -314,7 +274,7 @@ class CorrelationMatrices:
     def __init__(
         self,
         discrete_features: list,
-        save_dir: str = None,
+        save_dir: str = "results",
         figsize: tuple = (10, 10),
         single_fig: bool = True,
     ):
@@ -327,7 +287,7 @@ class CorrelationMatrices:
         self.discrete_features = discrete_features
         self.figsize = figsize
         self.single_fig = single_fig
-        self.save_dir = save_dir
+        self.save_dir = f"{save_dir}/correlation_matrices"
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
 
@@ -339,12 +299,14 @@ class CorrelationMatrices:
         corr_rd = self.compute_mixed_correlation_matrix(rd)
         corr_sd = self.compute_mixed_correlation_matrix(sd)
 
-        if self.save_dir is None:
-            return {"Correlation RD": corr_rd, "Correlation SD": corr_sd}
-
         if self.single_fig:
-            fig, axs = plt.subplots(ncols=2, figsize=self.figsize)
-            sns.heatmap(
+            fig, axs = plt.subplots(
+                ncols=2,
+                figsize=self.figsize,
+                sharex=True,
+                sharey=True,
+            )
+            hm_rd = sns.heatmap(
                 corr_rd,
                 annot=True,
                 fmt=".2f",
@@ -353,27 +315,47 @@ class CorrelationMatrices:
                 linewidths=0.5,
                 ax=axs[0],
                 square=True,
-                cbar_kws={"shrink": 0.5},
+                cbar=False,
+                mask=np.triu(np.ones_like(corr_rd, dtype=bool), k=1),
                 vmin=-1,
                 vmax=1,
             )
-            axs[0].set_title("Real")
-            sns.heatmap(
+            axs[0].set_title(
+                "Real",
+            )
+            hm_sd = sns.heatmap(
                 corr_sd,
                 annot=True,
                 fmt=".2f",
                 cmap="RdBu_r",
                 center=0,
                 linewidths=0.5,
+                cbar=False,
                 square=True,
+                mask=np.triu(np.ones_like(corr_sd, dtype=bool), k=1),
                 ax=axs[1],
-                cbar_kws={"shrink": 0.5},
                 vmin=-1,
                 vmax=1,
             )
-            axs[1].set_title("Synthetic")
-            plt.tight_layout()
-            plt.savefig(f"{self.save_dir}/correlation_all.png")
+            axs[1].set_title(
+                "Synthetic",
+            )
+            # fig.tight_layout()
+            # cbar = fig.colorbar(
+            #     hm_sd.get_children()[0],
+            #     ax=axs[1],
+            #     label="Correlation",
+            #     orientation="vertical",
+            #     use_gridspec=True,
+            # )
+            cbar_ax = fig.add_axes(
+                [0.91, 0.15, 0.02, 0.7]
+            )  # Adjust position and size of the colorbar
+            cbar = fig.colorbar(hm_sd.get_children()[0], cax=cbar_ax)
+            cbar.set_label("Correlation")
+            fig.tight_layout(rect=[0, 0, 0.9, 1])
+
+            plt.savefig(f"{self.save_dir}/correlation_all.pdf")
         else:
             fig1, axs = plt.subplots(figsize=self.figsize)
             sns.heatmap(
@@ -391,7 +373,7 @@ class CorrelationMatrices:
             )
             axs.set_title("Real")
             plt.tight_layout()
-            plt.savefig(f"{self.save_dir}/correlation_rd.png")
+            plt.savefig(f"{self.save_dir}/correlation_rd.pdf")
             fig2, axs = plt.subplots(figsize=self.figsize)
             sns.heatmap(
                 corr_sd,
@@ -408,7 +390,8 @@ class CorrelationMatrices:
             )
             axs.set_title("Synthetic")
             plt.tight_layout()
-            plt.savefig(f"{self.save_dir}/correlation_sd.png")
+            plt.savefig(f"{self.save_dir}/correlation_sd.pdf")
+        return plt
 
     def compute_mixed_correlation_matrix(self, data):
 
@@ -440,7 +423,7 @@ class CorrelationMatrices:
     # create correlation heatmap
     def cramers_v(self, x, y):
         confusion_matrix = pd.crosstab(x, y)
-        chi2 = stats.chi2_contingency(confusion_matrix)[0]
+        chi2 = stats.chi2_contingency(confusion_matrix, correction=False)[0]
         n = confusion_matrix.sum().sum()
         phi2 = chi2 / n
         r, k = confusion_matrix.shape
@@ -573,7 +556,7 @@ class DWP:
     def __init__(
         self,
         model_name: str = "xgb",
-        metric_numerical: str = "rmse",
+        metric_numerical: str = "r2",
         metric_discrete: str = "roc_auc",
         k: int = 3,
     ):
@@ -582,10 +565,6 @@ class DWP:
         self.metric_numerical = metric_numerical
         self.metric_discrete = metric_discrete
         self.k = k
-
-        # if not reduced should return something like {DWP {k} {XGB} {Real/Synthetic} {Attribute} {AUC/RMSE}: score}
-        # else if reduced by discrepancy: {DWP {k} {XGB} {Attribute} {AUC/RMSE}: score_discrepancy}
-        # else if reduced by avg. discrepancy: {DWP {k} {XGB} {AUC/RMSE}: avg. score_discrepancy}
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
 
@@ -605,7 +584,7 @@ class DWP:
 
         else:
             # TBD: add functionality for other classifiers
-            pass
+            raise Exception("No support yet for other models than XGB")
 
         scores_sd = {col: [] for col in x_rd.columns}
         scores_rd = {col: [] for col in x_rd.columns}
@@ -622,16 +601,30 @@ class DWP:
                     model = REG[self.model_name]
                     metric = ACCURACY_METRICS[self.metric_numerical]
 
-                # fit on sd and test on rd
-                model.fit(sd_train.drop(col, axis=1), sd_train[col])
+                if self.model_name == "xgb":
+                    model.set_params(tree_method="hist", enable_categorical=True)
+
+                label_encoder = LabelEncoder()
+                # fit on sd
+                y_tr = sd_train[col].copy()
+                y_te = rd_test[col].copy()
+                if col in self.discretes:
+                    y_tr = label_encoder.fit_transform(y_tr)
+                    y_te = label_encoder.transform(y_te)
+                model.fit(sd_train.drop(col, axis=1), y_tr)
                 preds_sd = self._predict(sd_train, rd_test, col, model)
-                score_sd = metric(rd_test[col], preds_sd)
+                score_sd = metric(y_te, preds_sd)
                 scores_sd[col].append(score_sd)
 
-                # fit and test on rd
-                model.fit(rd_train.drop(col, axis=1), rd_train[col])
+                # fit on rd
+                y_tr = rd_train[col].copy()
+                y_te = rd_test[col].copy()
+                if col in self.discretes:
+                    y_tr = label_encoder.fit_transform(y_tr)
+                    y_te = label_encoder.transform(y_te)
+                model.fit(rd_train.drop(col, axis=1), y_tr)
                 preds_rd = self._predict(rd_train, rd_test, col, model)
-                score_rd = metric(rd_test[col], preds_rd)
+                score_rd = metric(y_te, preds_rd)
                 scores_rd[col].append(score_rd)
 
         avg_scores_sd = {
@@ -641,7 +634,19 @@ class DWP:
             col: sum(scores) / len(scores) for col, scores in scores_rd.items()
         }
 
-        return {"DWP Real": avg_scores_rd, "DWP Synthetic": avg_scores_sd}
+        results_rd = {
+            f"DWP RD {k} ({self.model_name}, {self.k} folds, {self.metric_discrete if k in self.discretes else self.metric_numerical})": v
+            for k, v in avg_scores_rd.items()
+        }
+        results_sd = {
+            f"DWP SD {k} ({self.model_name}, {self.k} folds, {self.metric_discrete if k in self.discretes else self.metric_numerical})": v
+            for k, v in avg_scores_sd.items()
+        }
+        results = {}
+        results.update(results_rd)
+        results.update(results_sd)
+
+        return results
 
     def _predict(self, train, test, target, model):
         if target in self.discretes and self.metric_discrete == "roc_auc":
@@ -652,111 +657,61 @@ class DWP:
         else:
             return model.predict(test.drop(target, axis=1))
 
-    def dwp(self, train: pd.DataFrame, test: pd.DataFrame):
-        dwp = {}
-        for col in train.columns:
-            if col in self.discrete_features:
-                model = CLF[self.model_name]
-                metric = ACCURACY_METRICS[self.metric_discrete]
-            else:
-                model = REG[self.model_name]
-                metric = ACCURACY_METRICS[self.metric_numerical]
-
-            X_tr, y_tr, X_te, y_te = preprocess_prediction(
-                train, test, col, self.discrete_features
-            )
-            model.fit(X_tr, y_tr)
-
-            if col in self.discrete_features:
-                if self.metric_discrete == "roc_auc":
-                    preds = model.predict_proba(X_te)
-                    if len(np.unique(y_tr)) == 2:
-                        preds = preds[:, 1]
-                else:
-                    preds = model.predict(X_te)
-            else:
-                preds = model.predict(X_te)
-            score = metric(y_te, preds)
-            dwp[col] = score
-        return dwp
-
 
 class Projections:
 
     def __init__(
         self,
         embedder: str = "pca",
-        save_dir: str = None,
+        n_components: int = 2,
+        save_dir: str = "results",
         figsize: tuple = (10, 10),
-        plot: str = "scatter",
+        markersize: int = 36,
         **embedder_kwargs: dict,
     ):
         super().__init__()
         self.figsize = figsize
-        self.save_dir = save_dir
+        self.save_dir = f"{save_dir}/projections"
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
         self.embedder_name = embedder
         EMBEDDERS = {"pca": PCA, "umap": UMAP, "tsne": TSNE}
         self.embedder = EMBEDDERS[embedder.lower()]
         self.embedder_kwargs = embedder_kwargs
-        self.plot = plot
+        self.embedder_kwargs["n_components"] = n_components
+        self.markersize = markersize
 
     def evaluate(
         self,
         rd: pd.DataFrame,
         sd: pd.DataFrame,
     ):
-        if self.plot == "scatter":
-            self.embedder_kwargs["n_components"] = 2
-        else:
-            if "n_components" not in self.embedder_kwargs.keys():
-                raise Exception(
-                    "Please input n_components for Projections as embedder_kwargs when not using scatterplot, so the metric knows how many components to plot."
-                )
-
         data = pd.concat([rd, sd])
         self.embedder = self.embedder(**self.embedder_kwargs)
         emb = self.embedder.fit_transform(data)
         rd_emb = emb[: len(rd)]
         sd_emb = emb[len(rd) :]
 
-        if self.plot == "scatter":
-            # scatterplot of first two components
-            fig, ax = plt.subplots(figsize=self.figsize)
-            sns.scatterplot(
-                x=rd_emb[:, 0],
-                y=rd_emb[:, 1],
-                color="blue",
-                ax=ax,
-                label="Real",
-            )
-            sns.scatterplot(
-                x=sd_emb[:, 0],
-                y=sd_emb[:, 1],
-                color="red",
-                ax=ax,
-                label="Synthetic",
-            )
-        elif self.plot == "marginal":
-            n_cols = min(3, rd_emb.shape[1])
-            n_rows = int(np.ceil(rd_emb.shape[1] / n_cols))
-            fig, axs = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=self.figsize)
-            axs = axs.flatten()
-            for i in range(rd_emb.shape[1]):
-                sns.kdeplot(rd_emb[:, i], ax=axs[i], color="blue", alpha=0.3, fill=True)
-                sns.kdeplot(sd_emb[:, i], ax=axs[i], color="red", alpha=0.3, fill=True)
-                axs[i].set_title(f"Component {i+1}")
-                axs[i].set_xlabel("")
-                axs[i].set_ylabel("")
-            for ax in axs[rd_emb.shape[1] :]:
-                ax.axis("off")
-
-        fig.suptitle(self.embedder_name.upper())
-        plt.tight_layout()
-
-        if self.save_dir is not None:
-            plt.savefig(f"{self.save_dir}/{self.embedder_name}.png")
+        rd_emb = pd.DataFrame(rd_emb, columns=list(range(rd_emb.shape[1]))).assign(
+            source="Real"
+        )
+        sd_emb = pd.DataFrame(sd_emb, columns=list(range(sd_emb.shape[1]))).assign(
+            source="Synthetic"
+        )
+        plot_df = pd.concat([rd_emb, sd_emb])
+        plot = sns.pairplot(
+            plot_df,
+            hue="source",
+            palette={"Real": "blue", "Synthetic": "red"},
+            corner=True,
+            kind="scatter",
+            plot_kws={"alpha": 0.3},
+        )
+        sns.move_legend(plot, "upper right")
+        for lh in plot._legend.legend_handles:
+            lh.set_alpha(1)
+        plt.savefig(f"{self.save_dir}/{self.embedder_name}.pdf")
+        return plt
 
 
 class Wasserstein:
@@ -908,8 +863,6 @@ class MMD:
 
 class ClassifierTest:
 
-    # TBD: add support for other classifiers than XGB
-
     def __init__(self, clf: str = "xgb", kfolds: int = 3, random_state: int = 0):
         super().__init__()
         self.clf = clf
@@ -945,12 +898,11 @@ class ClassifierTest:
 
         else:
             # TBD: add functionality for other classifiers
-            pass
+            raise Exception("No support yet for other models than XGB")
 
         y = np.concatenate((np.zeros(len(rd)), np.ones(len(sd))))
         y = pd.Series(y, name="y")
         X = X.reset_index(drop=True)
-        # X = X.to_numpy()
 
         skf = StratifiedKFold(
             n_splits=self.kfolds, shuffle=True, random_state=self.random_state
@@ -1003,3 +955,54 @@ class ClassifierTest:
         ), reference_series.astype(float)
 
         return target_series, reference_series
+
+
+class JensenShannon:
+
+    def __init__(
+        self,
+        embed: str = "pca",
+        embed_components: float = 0.95,
+        eval_points: int = 1000,
+        random_state: int = 0,
+    ):
+        self.embed = embed
+        self.eval_points = eval_points
+        self.embed_components = embed_components
+        self.random_state = random_state
+
+    def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
+
+        # pca projection if required
+        if self.embed == "pca":
+            pca = PCA(
+                n_components=self.embed_components, random_state=self.random_state
+            )
+            rd = pca.fit_transform(rd)
+            sd = pca.transform(sd)
+
+        data1 = rd.to_numpy().T
+        data2 = sd.to_numpy().T
+
+        kde1 = stats.gaussian_kde(data1)
+        kde2 = stats.gaussian_kde(data2)
+
+        mins = np.minimum(data1.min(axis=1), data2.min(axis=1))
+        maxs = np.maximum(data1.max(axis=1), data2.max(axis=1))
+        grids = [np.linspace(lo, hi, self.eval_points) for lo, hi in zip(mins, maxs)]
+        mesh = np.meshgrid(*grids, indexing="ij")
+        grid_points = np.stack(
+            [m.reshape(-1) for m in mesh], axis=0
+        )  # shape: (n_dims, num_total_points)
+
+        # Evaluate KDEs
+        p = kde1(grid_points)
+        q = kde2(grid_points)
+
+        # Normalize
+        p /= p.sum()
+        q /= q.sum()
+
+        # Compute JS divergence
+        js = spatial.distance.jensenshannon(p, q)
+        return {f"Jensen Shannon ({self.embed}, {self.embed_components})": float(js)}

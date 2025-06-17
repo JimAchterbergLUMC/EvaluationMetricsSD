@@ -72,7 +72,7 @@ def preprocess_eval(
     train: pd.DataFrame,
     test: pd.DataFrame,
     syn: pd.DataFrame,
-    ohe_threshold: int = 15,
+    discrete_features: list = [],
     normalization: str = "minmax",
     **normalization_kwargs: dict
 ):
@@ -84,8 +84,8 @@ def preprocess_eval(
     all_df_ = []
     numericals = []
     for col in all_df.columns:
-        # one hot encode if nunique below threshold
-        if all_df[col].nunique() <= ohe_threshold:
+        # one hot encode if discrete
+        if col in discrete_features:
             encoder = OneHotEncoder(sparse_output=False, drop="if_binary")
             data = encoder.fit_transform(all_df[[col]])
             all_df_.append(pd.DataFrame(data, columns=encoder.get_feature_names_out()))

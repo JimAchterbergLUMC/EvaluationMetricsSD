@@ -3,3 +3,5 @@ openml==0.15.1
 mlxtend==0.23.4
 seaborn==0.13.2
 umap-learn==0.5.7
+fastcore<1.8.0
+pgmpy<1.0.0
