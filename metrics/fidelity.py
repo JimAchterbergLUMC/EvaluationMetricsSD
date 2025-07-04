@@ -45,6 +45,8 @@ ACCURACY_METRICS = {
 
 
 class DomainConstraint:
+    data_requirement = "test"
+    needs_discrete_features = False
 
     def __init__(self, constraint_list: list):
         super().__init__()
@@ -53,13 +55,18 @@ class DomainConstraint:
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         result = {}
         for constraint in self.constraint_list:
-            result[f"Constraint {constraint} (RD)"] = rd.eval(constraint).mean()
-            result[f"Constraint {constraint} (SD)"] = sd.eval(constraint).mean()
-
+            result[f"domainconstraint.constraint={constraint}.data=rd"] = rd.eval(
+                constraint
+            ).mean()
+            result[f"domainconstraint.constraint={constraint}.data=sd"] = sd.eval(
+                constraint
+            ).mean()
         return result
 
 
 class FeatureWisePlots:
+    data_requirement = "test"
+    needs_discrete_features = True
 
     def __init__(
         self,
@@ -115,7 +122,6 @@ class FeatureWisePlots:
                 axes[i].set_ylabel(
                     "Density",
                 )
-
             else:
                 rd_counts = (
                     rd[feature].value_counts(normalize=True).sort_index() * 100
@@ -141,7 +147,6 @@ class FeatureWisePlots:
                 axes[i].set_ylabel(
                     "Proportion (%)",
                 )
-
             axes[i].set_xlabel("")
             axes[i].tick_params(
                 axis="x",
@@ -271,6 +276,9 @@ class FeatureWisePlots:
 
 
 class CorrelationMatrices:
+    data_requirement = "test"
+    needs_discrete_features = True
+
     def __init__(
         self,
         discrete_features: list,
@@ -340,14 +348,6 @@ class CorrelationMatrices:
             axs[1].set_title(
                 "Synthetic",
             )
-            # fig.tight_layout()
-            # cbar = fig.colorbar(
-            #     hm_sd.get_children()[0],
-            #     ax=axs[1],
-            #     label="Correlation",
-            #     orientation="vertical",
-            #     use_gridspec=True,
-            # )
             cbar_ax = fig.add_axes(
                 [0.91, 0.15, 0.02, 0.7]
             )  # Adjust position and size of the colorbar
@@ -450,6 +450,8 @@ class CorrelationMatrices:
 
 
 class AssociationRuleMining:
+    data_requirement = "test"
+    needs_discrete_features = True
 
     def __init__(
         self,
@@ -475,14 +477,14 @@ class AssociationRuleMining:
         precision, recall = self._precision_recall(sd_rules, rd_rules)
 
         return {
-            f"ARM #Real rules (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": len(
+            f"arm.n_bins={self.n_bins}.min_support={self.min_support}.min_confidence={self.min_confidence}.num_rules.rd": len(
                 rd_rules
             ),
-            "ARM #Synthetic rules (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": len(
+            f"arm.n_bins={self.n_bins}.min_support={self.min_support}.min_confidence={self.min_confidence}.num_rules.sd": len(
                 sd_rules
             ),
-            "ARM Precision (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": precision,
-            "ARM Recall (bins={self.n_bins},support={self.min_support},confidence={self.min_confidence})": recall,
+            f"arm.n_bins={self.n_bins}.min_support={self.min_support}.min_confidence={self.min_confidence}.precision": precision,
+            f"arm.n_bins={self.n_bins}.min_support={self.min_support}.min_confidence={self.min_confidence}.recall": recall,
         }
 
     def _rule_mining(
@@ -552,6 +554,8 @@ class AssociationRuleMining:
 
 
 class DWP:
+    data_requirement = "test"
+    needs_discrete_features = False
 
     def __init__(
         self,
@@ -635,11 +639,11 @@ class DWP:
         }
 
         results_rd = {
-            f"DWP RD {k} ({self.model_name}, {self.k} folds, {self.metric_discrete if k in self.discretes else self.metric_numerical})": v
+            f"dwp.model={self.model_name}.k={self.k}.metric={'roc_auc' if k in self.discretes else self.metric_numerical}.target={k}.train=rd": v
             for k, v in avg_scores_rd.items()
         }
         results_sd = {
-            f"DWP SD {k} ({self.model_name}, {self.k} folds, {self.metric_discrete if k in self.discretes else self.metric_numerical})": v
+            f"dwp.model={self.model_name}.k={self.k}.metric={'roc_auc' if k in self.discretes else self.metric_numerical}.target={k}.train=sd": v
             for k, v in avg_scores_sd.items()
         }
         results = {}
@@ -659,6 +663,8 @@ class DWP:
 
 
 class Projections:
+    data_requirement = "test_preprocessed"
+    needs_discrete_features = False
 
     def __init__(
         self,
@@ -715,6 +721,8 @@ class Projections:
 
 
 class Wasserstein:
+    data_requirement = "test_preprocessed"
+    needs_discrete_features = False
 
     def __init__(self):
         super().__init__()
@@ -739,6 +747,8 @@ class Wasserstein:
 
 
 class PRDC:
+    data_requirement = "test_preprocessed"
+    needs_discrete_features = False
 
     def __init__(self, k: int = 5, metric="euclidean"):
         super().__init__()
@@ -766,10 +776,10 @@ class PRDC:
         coverage = (rd_sd_distances.min(axis=1) < rd_distances).mean()
 
         return {
-            f"precision (k={self.k})": precision,
-            f"recall (k={self.k})": recall,
-            f"density (k={self.k})": density,
-            f"coverage (k={self.k})": coverage,
+            f"prdc.k={self.k}.precision": precision,
+            f"prdc.k={self.k}.recall": recall,
+            f"prdc.k={self.k}.density": density,
+            f"prdc.k={self.k}.coverage": coverage,
         }
 
     def _get_kth_value(self, unsorted: np.ndarray, k: int, axis: int = -1):
@@ -787,6 +797,8 @@ class PRDC:
 
 
 class MMD:
+    data_requirement = "test_preprocessed"
+    needs_discrete_features = False
 
     def __init__(self, kernel: str = "rbf"):
         super().__init__()
@@ -858,10 +870,12 @@ class MMD:
         else:
             raise ValueError(f"Unsupported kernel {self.kernel}")
 
-        return {f"MMD ({self.kernel})": float(score)}
+        return {f"mmd.kernel={self.kernel}": float(score)}
 
 
 class ClassifierTest:
+    data_requirement = "test"
+    needs_discrete_features = False
 
     def __init__(self, clf: str = "xgb", kfolds: int = 3, random_state: int = 0):
         super().__init__()
@@ -958,6 +972,8 @@ class ClassifierTest:
 
 
 class JensenShannon:
+    data_requirement = "test_preprocessed"
+    needs_discrete_features = False
 
     def __init__(
         self,
@@ -1005,4 +1021,8 @@ class JensenShannon:
 
         # Compute JS divergence
         js = spatial.distance.jensenshannon(p, q)
-        return {f"Jensen Shannon ({self.embed}, {self.embed_components})": float(js)}
+        return {
+            f"jensenshannon.embed={self.embed}.embed_components={self.embed_components}": float(
+                js
+            )
+        }

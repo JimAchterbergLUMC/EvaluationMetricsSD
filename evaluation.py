@@ -69,47 +69,34 @@ def evaluate(
     dict_ = {}
     for metric__ in metrics.keys():
         metric_ = metric__.split("-")[0].strip().lower()
-        # add discrete features to metric_params for those which need it
-        if metric_ in [
-            "featurewise_plots",
-            "correlation_matrices",
-            "association_rules",
-            "domias",
-        ]:
+        metric_cls = METRICS[metric_]
+        # Use class properties to determine if discrete_features should be injected
+        if getattr(metric_cls, "needs_discrete_features", False):
             metrics[metric__]["discrete_features"] = discrete_features
-        metric = METRICS[metric_](**metrics[metric__])
-
-        # metrics computed w.r.t. test set in original feature space
-        if metric_ in [
-            "domain_constraints",
-            "association_rules",
-            "dwp",
-            "classifier_test",
-            "featurewise_plots",
-            "correlation_matrices",
-            "aia",
-        ]:
+        metric = metric_cls(**metrics[metric__])
+        # Use class property to determine which data to pass
+        data_req = getattr(metric_cls, "data_requirement", None)
+        if data_req == "test":
             metric_result = metric.evaluate(
                 X_test,
                 X_syn[-len(X_test) :],
             )
-        # metrics computed w.r.t. preprocessed test set (mostly distance-based fidelity measures)
-        elif metric_ in ["prdc", "wasserstein", "mmd", "projections", "jensenshannon"]:
+        elif data_req == "test_preprocessed":
             metric_result = metric.evaluate(
                 X_te_scaled,
                 X_syn_scaled[-len(X_test) :],
             )
-        # metrics computed w.r.t. preprocessed train set (mostly distance-based privacy measures)
-        elif metric_ in ["authenticity", "nndr"]:
+        elif data_req == "train_preprocessed":
             metric_result = metric.evaluate(
                 X_tr_scaled,
                 X_syn_scaled[: len(X_train)],
             )
-        # metrics computed w.r.t. train ánd test set (mostly MIAs)
-        elif metric_ in ["domias", "mia"]:
+        elif data_req == "train_and_test":
             metric_result = metric.evaluate(X_train, X_test, X_syn)
         else:
-            raise Exception(f"Metric {metric_} not (fully) implemented")
+            raise Exception(
+                f"Metric {metric_} not (fully) implemented or missing data_requirement property"
+            )
 
         # add result to dict (note that quantitative metrics have to output a dict, else they won't get added here)
         if type(metric_result) == dict:

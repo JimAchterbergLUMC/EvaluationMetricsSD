@@ -49,6 +49,8 @@ ACCURACY_METRICS = {
 
 
 class DOMIAS:
+    data_requirement = "train_and_test"
+    needs_discrete_features = True
 
     def __init__(
         self,
@@ -152,19 +154,36 @@ class DOMIAS:
         score = ACCURACY_METRICS[self.metric](Y_test, P_rel)
 
         domias = {}
-        domias[f"domias {self.metric} ({self.reduction})"] = score
+        if self.metric == "precision-recall":
+            precision, recall = score
+            domias[f"domias.metric=precision.reduction={self.reduction}"] = precision
+            domias[f"domias.metric=recall.reduction={self.reduction}"] = recall
+        else:
+            domias[f"domias.metric={self.metric}.reduction={self.reduction}"] = score
 
         if self.metric != "roc_auc":
             # add a naive F1 score (e.g. predicting all as members)
             P_rel = np.ones_like(P_rel)
-            domias[f"domias naive {self.metric} ({self.reduction})"] = ACCURACY_METRICS[
-                self.metric
-            ](Y_test, P_rel)
+            naive_score = ACCURACY_METRICS[self.metric](Y_test, P_rel)
+            if self.metric == "precision-recall":
+                naive_precision, naive_recall = naive_score
+                domias[f"domias.metric=precision.reduction={self.reduction}.naive"] = (
+                    naive_precision
+                )
+                domias[f"domias.metric=recall.reduction={self.reduction}.naive"] = (
+                    naive_recall
+                )
+            else:
+                domias[
+                    f"domias.metric={self.metric}.reduction={self.reduction}.naive"
+                ] = naive_score
 
         return domias
 
 
 class MIA:
+    data_requirement = "train_and_test"
+    needs_discrete_features = False
 
     def __init__(
         self,
@@ -219,15 +238,28 @@ class MIA:
 
         score = ACCURACY_METRICS[self.metric](attack_y, attack_pred)
         results = {}
-        results[f"MIA {self.metric}"] = score
+        if self.metric == "precision-recall":
+            precision, recall = score
+            results[f"mia.metric=precision"] = precision
+            results[f"mia.metric=recall"] = recall
+        else:
+            results[f"mia.metric={self.metric}"] = score
         if self.metric == "f1":
-            results[f"MIA naive"] = ACCURACY_METRICS[self.metric](
+            results[f"mia.metric={self.metric}.naive"] = ACCURACY_METRICS[self.metric](
                 attack_y, np.ones(len(attack_y))
             )
+        elif self.metric == "precision-recall":
+            naive_precision, naive_recall = ACCURACY_METRICS[self.metric](
+                attack_y, np.ones(len(attack_y))
+            )
+            results[f"mia.metric=precision.naive"] = naive_precision
+            results[f"mia.metric=recall.naive"] = naive_recall
         return results
 
 
 class Authenticity:
+    data_requirement = "train_preprocessed"
+    needs_discrete_features = False
 
     def __init__(self):
         super().__init__()
@@ -253,6 +285,8 @@ class Authenticity:
 
 
 class AttributeInferenceAttack:
+    data_requirement = "test"
+    needs_discrete_features = False
 
     # TBD: how to compare with "naive" score
     # TBD: use XGB native support for categorical features
@@ -331,7 +365,7 @@ class AttributeInferenceAttack:
             preds = self._predict(y_tr, X_te, col, model)
             score = metric(y_te, preds)
             scores[
-                f"AIA {col} {self.metric_discrete if col in self.discretes else self.metric_numerical}"
+                f"aia.target={col}.metric={'roc_auc' if col in self.discretes else self.metric_numerical}"
             ] = score
         return scores
 
@@ -346,19 +380,16 @@ class AttributeInferenceAttack:
 
 
 class NNDR:
+    data_requirement = "train_preprocessed"
+    needs_discrete_features = False
+
     def __init__(
         self,
         metric: str = "euclidean",
-        plot: bool = False,
-        save_dir: str = "results",
-        figsize: tuple = (10, 10),
+        percentiles: list = [1, 2, 5, 10],
     ):
         self.metric = metric
-        self.plot = plot
-        self.figsize = figsize
-        self.save_dir = f"{save_dir}/nndr"
-        if self.save_dir:
-            os.makedirs(self.save_dir, exist_ok=True)
+        self.percentiles = percentiles
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
         # calculate distance from sd to nearest rd -> normalized by distance to next nearest rd
@@ -369,12 +400,8 @@ class NNDR:
         second_nearest_dist = distances[:, 1]
         nndr = nearest_dist / second_nearest_dist
 
-        if not self.plot:
-            return np.mean(nndr)
-
-        fig, axs = plt.subplots(figsize=self.figsize)
-        sns.boxplot(nndr, ax=axs)
-        plt.title("NNDR")
-        plt.tight_layout()
-        sns.despine(fig)
-        plt.savefig(f"{self.save_dir}/nndr.pdf")
+        results = {}
+        for p in self.percentiles:
+            val = np.percentile(nndr, p)
+            results[f"nndr.percentile={p}"] = val
+        return results

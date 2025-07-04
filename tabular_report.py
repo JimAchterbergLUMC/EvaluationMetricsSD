@@ -91,7 +91,7 @@ metrics = {
         "quasi_identifiers": [],
     },
     # "projections-umap": {"embedder": "umap", "markersize": 100},
-    "nndr": {"plot": True},
+    "nndr": {},
     # "mia": {
     #     "generator": generator,
     #     "generator_hparams": hparams,
