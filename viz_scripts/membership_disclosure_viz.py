@@ -10,11 +10,11 @@ train = np.random.normal(0, 1, (n, 2))
 test = np.random.normal(0, 1, (n, 2))
 syn = train + 5e-2
 cols = ["col_" + str(x) for x in list(range(train.shape[1]))]
-train = pd.DataFrame(train, columns=cols)
-syn = pd.DataFrame(syn, columns=cols)
+train = pd.DataFrame(train, columns=cols)  # type: ignore
+syn = pd.DataFrame(syn, columns=cols)  # type: ignore
 train = train.assign(Dataset="Training Set")
 syn = syn.assign(Dataset="Synthetic Data")
-test = pd.DataFrame(test, columns=cols)
+test = pd.DataFrame(test, columns=cols)  # type: ignore
 test = test.assign(Dataset="Test Set")
 
 data = pd.concat((train, test, syn))
@@ -37,7 +37,7 @@ sns.scatterplot(
 )
 
 sns.scatterplot(
-    attack,
+    attack,  # type: ignore
     x=cols[0],
     y=cols[1],
     hue="Dataset",

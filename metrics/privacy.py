@@ -19,7 +19,7 @@ from xgboost import XGBClassifier, XGBRegressor
 import os
 from matplotlib import pyplot as plt
 import seaborn as sns
-from utils import preprocess_prediction, preprocess_eval
+from utils import preprocess_prediction, preprocess_eval  # type: ignore
 from synthcity.plugins.core.dataloader import GenericDataLoader
 from synthcity.plugins import Plugins
 
@@ -56,7 +56,7 @@ class DOMIAS:
         self,
         ref_prop: float = 0.5,
         member_prop: float = 1.0,
-        reduction: str = None,
+        reduction: str = None,  # type: ignore
         n_neighbours: int = 5,
         n_components: int = 5,
         random_state: int = 0,
@@ -94,9 +94,9 @@ class DOMIAS:
         # grab only known QIs
         if len(self.quasi_identifiers) > 0:
             train, test, syn = (
-                train[self.quasi_identifiers].copy(),
-                test[self.quasi_identifiers].copy(),
-                syn[self.quasi_identifiers].copy(),
+                train[self.quasi_identifiers].copy(),  # type: ignore
+                test[self.quasi_identifiers].copy(),  # type: ignore
+                syn[self.quasi_identifiers].copy(),  # type: ignore
             )
 
         # preprocess before density estimation
@@ -132,7 +132,7 @@ class DOMIAS:
         all_ = np.concatenate((syn.to_numpy(), reference_set.to_numpy()))
         all_ = embedder.fit_transform(all_)
         # project test data to same space
-        all_ = np.concatenate((all_, embedder.transform(X_test)))
+        all_ = np.concatenate((all_, embedder.transform(X_test)))  # type: ignore
         # standardize for gaussian KDE
         all_ = StandardScaler().fit_transform(all_)
         synth_set = all_[: len(syn)]
@@ -199,7 +199,7 @@ class MIA:
     def evaluate(self, train: pd.DataFrame, test: pd.DataFrame, syn: pd.DataFrame):
 
         # fit a generator on the synthetic data
-        syn = GenericDataLoader(syn, random_state=self.random_state)
+        syn = GenericDataLoader(syn, random_state=self.random_state)  # type: ignore
         self.generator.fit(syn)
 
         # generate "doubly" synthetic data
@@ -309,7 +309,7 @@ class AttributeInferenceAttack:
 
         # select only qi's and sensitive features
         all_cols = self.quasi_identifiers + self.sensitive_attributes
-        rd, sd = rd[all_cols], sd[all_cols]
+        rd, sd = rd[all_cols], sd[all_cols]  # type: ignore
 
         if self.model_name == "xgb":
             # for xgb classifier use built-in functionality to handle categorical data

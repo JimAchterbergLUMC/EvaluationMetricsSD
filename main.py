@@ -7,7 +7,7 @@ from synthcity.plugins import Plugins
 from synthcity.utils.reproducibility import enable_reproducible_results
 import openml
 from sklearn.model_selection import KFold
-from utils import clear_dir
+from utils.utils import clear_dir
 from evaluation import evaluate
 
 from sklearn.datasets import load_diabetes
@@ -97,7 +97,7 @@ metrics = {
 
 # load data
 X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
-X = pd.concat([X, y], axis=1)
+X = pd.concat([X, y], axis=1)  # type: ignore
 X["sex"] = X["sex"].map({1: "female", 2: "male"})
 discrete_features = ["sex"]
 
@@ -147,3 +147,5 @@ else:
 os.makedirs("results", exist_ok=True)
 with open(f"results/{generator}.json", "w") as f:
     json.dump(results, f, indent=4)
+
+# benchmarking results can be pretty printed using viz_scripts/format_results.py

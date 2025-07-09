@@ -21,7 +21,7 @@ import seaborn as sns
 from umap import UMAP
 from sklearn.manifold import TSNE
 
-from utils import preprocess_prediction
+from utils.utils import preprocess_prediction
 
 
 # TBD:
@@ -100,7 +100,7 @@ class FeatureWisePlots:
         for i, feature in enumerate(self.numerical_features + self.discrete_features):
             if feature in self.numerical_features:
                 sns.histplot(
-                    rd[feature],
+                    rd[feature],  # type: ignore
                     kde=True,
                     stat="density",
                     bins=30,
@@ -110,7 +110,7 @@ class FeatureWisePlots:
                     ax=axes[i],
                 )
                 sns.histplot(
-                    sd[feature],
+                    sd[feature],  # type: ignore
                     kde=True,
                     stat="density",
                     bins=30,
@@ -349,11 +349,11 @@ class CorrelationMatrices:
                 "Synthetic",
             )
             cbar_ax = fig.add_axes(
-                [0.91, 0.15, 0.02, 0.7]
+                [0.91, 0.15, 0.02, 0.7]  # type: ignore
             )  # Adjust position and size of the colorbar
-            cbar = fig.colorbar(hm_sd.get_children()[0], cax=cbar_ax)
+            cbar = fig.colorbar(hm_sd.get_children()[0], cax=cbar_ax)  # type: ignore
             cbar.set_label("Correlation")
-            fig.tight_layout(rect=[0, 0, 0.9, 1])
+            fig.tight_layout(rect=[0, 0, 0.9, 1])  # type: ignore
 
             plt.savefig(f"{self.save_dir}/correlation_all.pdf")
         else:
@@ -520,7 +520,7 @@ class AssociationRuleMining:
                     df_discretized.append(
                         pd.DataFrame(
                             discretizer.fit_transform(data[[col]]),
-                            columns=[col],
+                            columns=[col],  # type: ignore
                         )
                     )
                 else:
@@ -684,7 +684,7 @@ class Projections:
         EMBEDDERS = {"pca": PCA, "umap": UMAP, "tsne": TSNE}
         self.embedder = EMBEDDERS[embedder.lower()]
         self.embedder_kwargs = embedder_kwargs
-        self.embedder_kwargs["n_components"] = n_components
+        self.embedder_kwargs["n_components"] = n_components  # type: ignore
         self.markersize = markersize
 
     def evaluate(
@@ -698,10 +698,10 @@ class Projections:
         rd_emb = emb[: len(rd)]
         sd_emb = emb[len(rd) :]
 
-        rd_emb = pd.DataFrame(rd_emb, columns=list(range(rd_emb.shape[1]))).assign(
+        rd_emb = pd.DataFrame(rd_emb, columns=list(range(rd_emb.shape[1]))).assign(  # type: ignore
             source="Real"
         )
-        sd_emb = pd.DataFrame(sd_emb, columns=list(range(sd_emb.shape[1]))).assign(
+        sd_emb = pd.DataFrame(sd_emb, columns=list(range(sd_emb.shape[1]))).assign(  # type: ignore
             source="Synthetic"
         )
         plot_df = pd.concat([rd_emb, sd_emb])
@@ -714,7 +714,7 @@ class Projections:
             plot_kws={"alpha": 0.3},
         )
         sns.move_legend(plot, "upper right")
-        for lh in plot._legend.legend_handles:
+        for lh in plot._legend.legend_handles:  # type: ignore
             lh.set_alpha(1)
         plt.savefig(f"{self.save_dir}/{self.embedder_name}.pdf")
         return plt
@@ -732,7 +732,7 @@ class Wasserstein:
         rd: pd.DataFrame,
         sd: pd.DataFrame,
     ):
-        rd, sd = rd.to_numpy(), sd.to_numpy()
+        rd, sd = rd.to_numpy(), sd.to_numpy()  # type: ignore
         results = {}
         results["wasserstein"] = (
             (
@@ -756,9 +756,9 @@ class PRDC:
         self.metric = metric
 
     def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
-        rd, sd = rd.to_numpy(), sd.to_numpy()
-        rd_distances = self._compute_nearest_neighbour_distances(rd, self.k)
-        sd_distances = self._compute_nearest_neighbour_distances(sd, self.k)
+        rd, sd = rd.to_numpy(), sd.to_numpy()  # type: ignore
+        rd_distances = self._compute_nearest_neighbour_distances(rd, self.k)  # type: ignore
+        sd_distances = self._compute_nearest_neighbour_distances(sd, self.k)  # type: ignore
         rd_sd_distances = metrics.pairwise_distances(rd, sd, metric=self.metric)
 
         precision = (
@@ -814,7 +814,7 @@ class MMD:
             MMD using linear kernel (i.e., k(x,y) = <x,y>)
             """
             delta_df = rd.mean(axis=0) - sd.mean(axis=0)
-            delta = delta_df.values
+            delta = delta_df.values  # type: ignore
 
             score = delta.dot(delta.T)
         elif self.kernel == "rbf":
@@ -899,7 +899,7 @@ class ClassifierTest:
                 try:
                     rd[col].astype(float)
                     # align numerical precision between sd and rd to avoid XGB splitting based on precision discrepancies
-                    sd[col], rd[col] = self.align_column_precision(sd[col], rd[col])
+                    sd[col], rd[col] = self.align_column_precision(sd[col], rd[col])  # type: ignore
                     X[col] = pd.concat([rd[col], sd[col]])
                     X[col] = X[col].astype("float")
                 except:
@@ -961,8 +961,8 @@ class ClassifierTest:
 
         # Find max meaningful precision across both
         precision = get_max_decimal_places(reference_series)
-        target_series = target_series.round(precision)
-        reference_series = reference_series.round(precision)
+        target_series = target_series.round(precision)  # type: ignore
+        reference_series = reference_series.round(precision)  # type: ignore
 
         target_series, reference_series = target_series.astype(
             float

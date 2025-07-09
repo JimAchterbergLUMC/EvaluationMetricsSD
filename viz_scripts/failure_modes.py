@@ -14,7 +14,7 @@ np.random.seed(seed)
 
 Nr = 1000
 Ns = 1000
-data = pd.DataFrame(["Real"] * Nr + ["Synthetic"] * Ns, columns=["Source"])
+data = pd.DataFrame(["Real"] * Nr + ["Synthetic"] * Ns, columns=["Source"])  # type: ignore
 real = np.random.normal(0, 1, (Nr))
 syn = np.random.normal(1, 1, (Ns))
 data["Shift"] = np.concatenate((real, syn))
@@ -48,14 +48,16 @@ for i, col in enumerate(datasets):
 
     # do a train-test split
     X_train, X_test = train_test_split(
-        Xreal[[col]].reset_index(drop=True), test_size=0.999, random_state=seed
+        Xreal[[col]].reset_index(drop=True),  # type: ignore
+        test_size=0.999,
+        random_state=seed,
     )
 
     # evaluate the required metrics
     metric_results = evaluate(
-        X_train=X_train.reset_index(drop=True),
-        X_test=X_test.reset_index(drop=True),
-        X_syn=Xsyn[[col]].reset_index(drop=True),
+        X_train=X_train.reset_index(drop=True),  # type: ignore
+        X_test=X_test.reset_index(drop=True),  # type: ignore
+        X_syn=Xsyn[[col]].reset_index(drop=True),  # type: ignore
         metrics={
             "wasserstein": {},
             "prdc": {},

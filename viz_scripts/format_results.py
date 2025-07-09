@@ -27,9 +27,9 @@ def print_table(data):
             fold_data.append(values)
     df = pd.DataFrame(fold_data)
 
-    print(df.mean().round(3))
+    print(df.mean().round(3))  # type: ignore
 
-    print(df.std().round(3))
+    print(df.std().round(3))  # type: ignore
 
 
 print_table(data)

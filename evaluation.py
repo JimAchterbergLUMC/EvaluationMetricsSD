@@ -5,7 +5,7 @@ import pandas as pd
 import os
 import shutil
 
-from utils import preprocess_eval, determine_feature_types
+from utils.utils import preprocess_eval, determine_feature_types
 
 from metrics.fidelity import (
     DomainConstraint,

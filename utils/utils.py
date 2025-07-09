@@ -56,14 +56,14 @@ def preprocess_prediction(
         # normalize numerical targets
         scaler = SCALERS[normalization]()
         y_tr = pd.Series(
-            scaler.fit_transform(y_tr.to_frame()).flatten(), name=y_tr.name
+            scaler.fit_transform(y_tr.to_frame()).flatten(), name=y_tr.name  # type: ignore
         )
-        y_te = pd.Series(scaler.transform(y_te.to_frame()).flatten(), name=y_te.name)
+        y_te = pd.Series(scaler.transform(y_te.to_frame()).flatten(), name=y_te.name)  # type: ignore
     else:
         # label encode discrete targets
         scaler = LabelEncoder()
-        y_tr = pd.Series(scaler.fit_transform(y_tr), name=y_tr.name)
-        y_te = pd.Series(scaler.transform(y_te), name=y_te.name)
+        y_tr = pd.Series(scaler.fit_transform(y_tr), name=y_tr.name)  # type: ignore
+        y_te = pd.Series(scaler.transform(y_te), name=y_te.name)  # type: ignore
 
     return X_tr, y_tr, X_te, y_te
 

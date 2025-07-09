@@ -16,8 +16,8 @@ syn = np.concatenate((syn, outlier_syn))
 
 cols = ["col_" + str(x) for x in list(range(data.shape[1]))]
 
-data = pd.DataFrame(data, columns=cols)
-syn = pd.DataFrame(syn, columns=cols)
+data = pd.DataFrame(data, columns=cols)  # type: ignore
+syn = pd.DataFrame(syn, columns=cols)  # type: ignore
 
 data = data.assign(Dataset="Training Set")
 syn = syn.assign(Dataset="Synthetic Data")
