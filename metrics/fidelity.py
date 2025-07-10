@@ -99,24 +99,27 @@ class FeatureWisePlots:
 
         for i, feature in enumerate(self.numerical_features + self.discrete_features):
             if feature in self.numerical_features:
+                bins = np.histogram_bin_edges(
+                    pd.concat([rd[feature], sd[feature]]).to_numpy(), bins="auto"
+                )
                 sns.histplot(
                     rd[feature],  # type: ignore
                     kde=True,
                     stat="density",
-                    bins=30,
+                    bins=bins,
                     label="Real",
                     color="blue",
-                    alpha=0.3,
+                    alpha=0.2,
                     ax=axes[i],
                 )
                 sns.histplot(
                     sd[feature],  # type: ignore
                     kde=True,
                     stat="density",
-                    bins=30,
+                    bins=bins,
                     label="Synthetic",
                     color="red",
-                    alpha=0.3,
+                    alpha=0.2,
                     ax=axes[i],
                 )
                 axes[i].set_ylabel(
@@ -142,15 +145,13 @@ class FeatureWisePlots:
                     data=plot_data,
                     ax=axes[i],
                     palette=["blue", "red"],
-                    alpha=0.5,
+                    alpha=0.7,
                 )
                 axes[i].set_ylabel(
                     "Proportion (%)",
                 )
             axes[i].set_xlabel("")
-            axes[i].tick_params(
-                axis="x",
-            )
+            axes[i].tick_params(axis="x", labelrotation=90)
             axes[i].tick_params(
                 axis="y",
             )

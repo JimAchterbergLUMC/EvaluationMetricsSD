@@ -1,6 +1,11 @@
 import pandas as pd
 
 
+# df = pd.read_csv("data/admissions.csv.gz", compression="gzip")
+# print(df.race.value_counts(normalize=True, dropna=False))
+# exit()
+
+
 # select cohort based on diagnoses
 cohort = pd.read_csv("data/diagnoses_icd.csv.gz", compression="gzip")
 cohort["icd_code"] = cohort["icd_code"].astype(str)
@@ -13,8 +18,29 @@ cohort = cohort.drop_duplicates().reset_index(drop=True)  # type: ignore
 admissions = pd.read_csv(
     "data/admissions.csv.gz",
     compression="gzip",
-    usecols=("subject_id", "hadm_id", "admittime", "dischtime", "hospital_expire_flag"),  # type: ignore
+    usecols=("subject_id", "hadm_id", "admittime", "dischtime", "admission_type", "race", "marital_status", "hospital_expire_flag"),  # type: ignore
 )
+admissions["race"] = admissions["race"].apply(
+    lambda x: "White" if x.lower().startswith("white") else x
+)
+admissions["race"] = admissions["race"].apply(
+    lambda x: "Black" if x.lower().startswith("black") else x
+)
+admissions["race"] = admissions["race"].apply(
+    lambda x: "Other" if x not in ["White", "Black"] else x
+)
+admissions["marital_status"] = (
+    admissions["marital_status"]
+    .astype(str)
+    .apply(
+        lambda x: (
+            "Unknown"
+            if x.lower() not in ["married", "single", "widowed", "divorced"]
+            else x
+        )
+    )
+)
+
 admissions["admittime_numeric"] = pd.to_datetime(admissions["admittime"]).apply(
     lambda x: x.toordinal()
     + (x - x.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 86400
@@ -24,6 +50,7 @@ admissions["dischtime_numeric"] = pd.to_datetime(admissions["dischtime"]).apply(
     + (x - x.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 86400
 )
 admissions["los"] = admissions["dischtime_numeric"] - admissions["admittime_numeric"]
+admissions = admissions.rename(columns={"hospital_expire_flag": "mortality"})
 
 cohort = cohort.merge(admissions, on="hadm_id", how="left")
 
@@ -34,6 +61,8 @@ patients = pd.read_csv(
     compression="gzip",
     usecols=("subject_id", "anchor_age", "gender"),  # type: ignore
 )
+patients = patients.rename(columns={"anchor_age": "age", "gender": "sex"})
+
 cohort = cohort.merge(patients, on="subject_id", how="left")
 
 
@@ -96,26 +125,32 @@ cohort = pd.merge_asof(
 # select only relevant features and cast dtypes
 cohort = cohort[
     [
-        "anchor_age",
-        "gender",
+        "age",
+        "sex",
         "n_diagnoses",
         "BMI",
         "BP_systolic",
         "BP_diastolic",
         "los",
-        "hospital_expire_flag",
+        "mortality",
+        "admission_type",
+        "marital_status",
+        "race",
     ]
 ]
 cohort = cohort.dropna().reset_index(drop=True)
 dtypes = {
-    "anchor_age": int,
-    "gender": str,
+    "age": int,
+    "sex": str,
     "n_diagnoses": int,
     "BMI": float,
     "BP_systolic": int,
     "BP_diastolic": int,
     "los": float,
-    "hospital_expire_flag": int,
+    "mortality": int,
+    "admission_type": str,
+    "marital_status": str,
+    "race": str,
 }
 cohort = cohort.astype(dtypes)
 

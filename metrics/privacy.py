@@ -19,7 +19,7 @@ from xgboost import XGBClassifier, XGBRegressor
 import os
 from matplotlib import pyplot as plt
 import seaborn as sns
-from utils import preprocess_prediction, preprocess_eval  # type: ignore
+from utils.utils import preprocess_prediction, preprocess_eval  # type: ignore
 from synthcity.plugins.core.dataloader import GenericDataLoader
 from synthcity.plugins import Plugins
 
@@ -102,7 +102,7 @@ class DOMIAS:
         # preprocess before density estimation
         train, test, syn = preprocess_eval(
             train, test, syn, self.discrete_features, normalization="standard"
-        )
+        )  # type: ignore
 
         members = train[: int(len(train) * self.member_prop)].copy()
         ref_size = int(self.ref_prop * len(test))
