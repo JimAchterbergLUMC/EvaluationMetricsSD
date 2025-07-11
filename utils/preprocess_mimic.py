@@ -1,8 +1,12 @@
 import pandas as pd
-
+import numpy as np
 
 # df = pd.read_csv("data/admissions.csv.gz", compression="gzip")
-# print(df.race.value_counts(normalize=True, dropna=False))
+# top_admission_locations = df["admission_location"].value_counts(
+#     normalize=True, dropna=False
+# )
+# print(top_admission_locations)
+
 # exit()
 
 
@@ -18,7 +22,10 @@ cohort = cohort.drop_duplicates().reset_index(drop=True)  # type: ignore
 admissions = pd.read_csv(
     "data/admissions.csv.gz",
     compression="gzip",
-    usecols=("subject_id", "hadm_id", "admittime", "dischtime", "admission_type", "race", "marital_status", "hospital_expire_flag"),  # type: ignore
+    usecols=("subject_id", "hadm_id", "admittime", "dischtime", "admission_type", "admission_location", "race", "marital_status", "hospital_expire_flag"),  # type: ignore
+)
+admissions["admission_location"] = admissions["admission_location"].apply(
+    lambda x: "INFORMATION NOT AVAILABLE" if x == np.nan else x
 )
 admissions["race"] = admissions["race"].apply(
     lambda x: "White" if x.lower().startswith("white") else x
@@ -134,6 +141,7 @@ cohort = cohort[
         "los",
         "mortality",
         "admission_type",
+        "admission_location",
         "marital_status",
         "race",
     ]
@@ -149,6 +157,7 @@ dtypes = {
     "los": float,
     "mortality": int,
     "admission_type": str,
+    "admission_location": str,
     "marital_status": str,
     "race": str,
 }

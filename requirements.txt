@@ -5,3 +5,4 @@ seaborn==0.13.2
 fastcore<1.8.0
 pgmpy<1.0.0
 opacus==1.5.3
+umap-learn==0.5.7

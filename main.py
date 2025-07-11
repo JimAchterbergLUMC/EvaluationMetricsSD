@@ -17,8 +17,8 @@ import pandas as pd
 # start with clean workspace
 clear_dir("workspace")
 
-cv_folds = 3
-n_init = 3
+cv_folds = 1
+n_init = 1
 seed = 0
 enable_reproducible_results(seed)
 
@@ -77,9 +77,9 @@ hparams_all = {
 }
 
 metrics = {
-    "wasserstein": {},
-    "prdc": {},
-    "classifier_test": {"random_state": seed},
+    # "wasserstein": {},
+    # "prdc": {},
+    # "classifier_test": {"random_state": seed},
     "authenticity": {},
     "domias": {
         "reduction": "pca",
@@ -91,87 +91,94 @@ metrics = {
         "quasi_identifiers": [],
         # "predict_top": 0.05,
     },
-    # "domain_constraints": {"constraint_list": ["BP_systolic>=BP_diastolic"]},
-    # "featurewise_plots": {"figsize": (10, 10)},
-    # "correlation_matrices": {"figsize": (10, 5)},
-    # "association_rules": {
-    #     "n_bins": 3,
-    #     "min_support": 0.3,
-    #     "min_confidence": 0.75,
-    # },
-    # "aia": {
-    #     "quasi_identifiers": ["age", "sex", "BMI"],
-    #     "sensitive_attributes": ["los"],
-    # },
-    # "nndr": {},
+    "domain_constraints": {"constraint_list": ["BP_systolic>=BP_diastolic"]},
+    "featurewise_plots": {"figsize": (10, 10)},
+    "correlation_matrices": {"figsize": (10, 5)},
+    "association_rules": {
+        "n_bins": 3,
+        "min_support": 0.3,
+        "min_confidence": 0.75,
+    },
+    "aia": {
+        "quasi_identifiers": ["age", "sex", "BMI"],
+        "sensitive_attributes": ["los"],
+    },
+    "nndr": {},
 }
 
-# generator = "arf"
-for generator in hparams_all.keys():
-    hparams = hparams_all[generator]
-    results = {}
+generator = "arf"
+# for generator in hparams_all.keys():
+hparams = hparams_all[generator]
+results = {}
 
-    # ---------------------------------
-    # START BENCHMARKING
+# ---------------------------------
+# START BENCHMARKING
 
-    # load data
-    # X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
-    # X = pd.concat([X, y], axis=1)  # type: ignore
-    # X["sex"] = X["sex"].map({1: "female", 2: "male"})
-    # discrete_features = ["sex"]
-    X = pd.read_csv("data/cohort.csv")
-    discrete_features = ["sex", "mortality", "race", "marital_status", "admission_type"]
+# load data
+# X, y = load_diabetes(as_frame=True, return_X_y=True, scaled=False)
+# X = pd.concat([X, y], axis=1)  # type: ignore
+# X["sex"] = X["sex"].map({1: "female", 2: "male"})
+# discrete_features = ["sex"]
+X = pd.read_csv("data/cohort.csv")
+discrete_features = [
+    "sex",
+    "mortality",
+    "race",
+    "marital_status",
+    "admission_type",
+    "admission_location",
+]
 
-    if cv_folds == 1 and n_init == 1:
-        # No CV, single run
-        print("Single run: no cross-validation.")
-        X_train, X_test = train_test_split(X, test_size=0.5, random_state=seed)
-        X_train = GenericDataLoader(data=X_train)
-        X_test = GenericDataLoader(data=X_test)
+if cv_folds == 1 and n_init == 1:
+    # No CV, single run
+    print("Single run: no cross-validation.")
+    X_train, X_test = train_test_split(X, test_size=0.5, random_state=seed)
+    X_train = GenericDataLoader(data=X_train)
+    X_test = GenericDataLoader(data=X_test)
 
-        hparams["random_state"] = seed
-        plugin = Plugins().get(generator, **hparams)
-        plugin.fit(X_train)
-        X_syn = plugin.generate(len(X))
-        results["report"] = evaluate(
-            X_train.dataframe(),
-            X_test.dataframe(),
-            X_syn.dataframe(),
-            metrics,
-            discrete_features=discrete_features,
-        )
-    else:
-        # perform k fold CV
-        for fold, (train, test) in enumerate(
-            KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(X)
-        ):
-            print(f"fold: {fold}")
-            results[f"fold: {fold}"] = {}
-            X_train = GenericDataLoader(data=X.iloc[train])
-            X_test = GenericDataLoader(data=X.iloc[test])
-            for i in range(n_init):
-                print(f"init: {i}")
-                hparams["random_state"] = i
-                clear_cache()
-                plugin = Plugins().get(generator, **hparams)
-                plugin.fit(X_train)
-                X_syn = plugin.generate(len(X))
-                clear_cache()
-                clear_dir("workspace")
-                results[f"fold: {fold}"][f"init: {i}"] = evaluate(
-                    X_train.dataframe(),
-                    X_test.dataframe(),
-                    X_syn.dataframe(),
-                    metrics,
-                    discrete_features=discrete_features,
-                )
+    hparams["random_state"] = seed
+    plugin = Plugins().get(generator, **hparams)
+    plugin.fit(X_train)
+    X_syn = plugin.generate(len(X))
+    results["report"] = evaluate(
+        X_train.dataframe(),
+        X_test.dataframe(),
+        X_syn.dataframe(),
+        metrics,
+        discrete_features=discrete_features,
+    )
+else:
+    # perform k fold CV
+    for fold, (train, test) in enumerate(
+        KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(X)
+    ):
+        print(f"fold: {fold}")
+        results[f"fold: {fold}"] = {}
+        X_train = GenericDataLoader(data=X.iloc[train])
+        X_test = GenericDataLoader(data=X.iloc[test])
+        for i in range(n_init):
+            print(f"init: {i}")
+            hparams["random_state"] = i
+            clear_cache()
+            plugin = Plugins().get(generator, **hparams)
+            plugin.fit(X_train)
+            X_syn = plugin.generate(len(X))
+            clear_cache()
+            clear_dir("workspace")
+            results[f"fold: {fold}"][f"init: {i}"] = evaluate(
+                X_train.dataframe(),
+                X_test.dataframe(),
+                X_syn.dataframe(),
+                metrics,
+                discrete_features=discrete_features,
+            )
 
-    # save results
-    os.makedirs("results", exist_ok=True)
-    with open(f"results/{generator}.json", "w") as f:
-        json.dump(results, f, indent=4)
+# save results
+os.makedirs("results", exist_ok=True)
+with open(f"results/{generator}.json", "w") as f:
+    json.dump(results, f, indent=4)
 
-    clear_cache()
-    clear_dir("workspace")
+clear_cache()
+clear_dir("workspace")
 
-    # benchmarking results can be pretty printed using viz_scripts/format_results.py
+# benchmarking results can be pretty printed using viz_scripts/format_results.py
