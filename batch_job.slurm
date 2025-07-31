@@ -29,7 +29,7 @@ conda activate /tmp/jlenv/conda_env
 pip install --no-cache-dir -r requirements.txt
 
 # run script
-python3 tabular_benchmark.py
+python3 main.py
 
 # cleanup environment
 conda deactivate

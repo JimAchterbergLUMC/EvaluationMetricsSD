@@ -380,7 +380,7 @@ class AttributeInferenceAttack:
 
 
 class NNDR:
-    data_requirement = "train_preprocessed"
+    data_requirement = "train_and_test_preprocessed"
     needs_discrete_features = False
 
     def __init__(
@@ -391,7 +391,20 @@ class NNDR:
         self.metric = metric
         self.percentiles = percentiles
 
-    def evaluate(self, rd: pd.DataFrame, sd: pd.DataFrame):
+    def evaluate(self, rd_train: pd.DataFrame, rd_test: pd.DataFrame, sd: pd.DataFrame):
+        nndr_train = self._compute_nndr(rd_train, sd)
+        nndr_test = self._compute_nndr(rd_test, sd)
+
+        results = {}
+        for p in self.percentiles:
+            val_train = np.percentile(nndr_train, p)
+            val_test = np.percentile(nndr_test, p)
+            results[f"nndr.percentile={p}.train"] = val_train
+            results[f"nndr.percentile={p}.test"] = val_test
+            results[f"nndr.percentile={p}.ratio"] = val_train / val_test
+        return results
+
+    def _compute_nndr(self, rd: pd.DataFrame, sd: pd.DataFrame):
         # calculate distance from sd to nearest rd -> normalized by distance to next nearest rd
         nn = NearestNeighbors(n_neighbors=2, metric=self.metric)
         nn.fit(rd)
@@ -399,9 +412,4 @@ class NNDR:
         nearest_dist = distances[:, 0]
         second_nearest_dist = distances[:, 1]
         nndr = nearest_dist / second_nearest_dist
-
-        results = {}
-        for p in self.percentiles:
-            val = np.percentile(nndr, p)
-            results[f"nndr.percentile={p}"] = val
-        return results
+        return nndr

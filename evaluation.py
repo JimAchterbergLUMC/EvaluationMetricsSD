@@ -93,6 +93,12 @@ def evaluate(
             )
         elif data_req == "train_and_test":
             metric_result = metric.evaluate(X_train, X_test, X_syn)
+        elif data_req == "train_and_test_preprocessed":
+            metric_result = metric.evaluate(
+                X_tr_scaled,
+                X_te_scaled,
+                X_syn_scaled,
+            )
         else:
             raise Exception(
                 f"Metric {metric_} not (fully) implemented or missing data_requirement property"

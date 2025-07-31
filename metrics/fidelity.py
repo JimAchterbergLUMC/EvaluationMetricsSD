@@ -2,7 +2,12 @@ import os
 import numpy as np
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.model_selection import StratifiedKFold, KFold
-from sklearn.metrics import roc_auc_score, root_mean_squared_error, r2_score
+from sklearn.metrics import (
+    roc_auc_score,
+    root_mean_squared_error,
+    r2_score,
+    mutual_info_score,
+)
 from sklearn.decomposition import PCA
 from torchvision import transforms as transforms
 from geomloss import SamplesLoss
@@ -16,6 +21,7 @@ from sklearn.preprocessing import (
     OneHotEncoder,
     KBinsDiscretizer,
 )
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from mlxtend.frequent_patterns import apriori, association_rules
 import seaborn as sns
 from umap import UMAP
@@ -283,6 +289,7 @@ class CorrelationMatrices:
     def __init__(
         self,
         discrete_features: list,
+        corr_type: str = "correlation",  # mi, correlation
         save_dir: str = "results",
         figsize: tuple = (10, 10),
         single_fig: bool = True,
@@ -293,6 +300,7 @@ class CorrelationMatrices:
         Else, returns the correlation matrices for further processing.
         """
         super().__init__()
+        self.corr_type = corr_type
         self.discrete_features = discrete_features
         self.figsize = figsize
         self.single_fig = single_fig
@@ -305,8 +313,14 @@ class CorrelationMatrices:
             x for x in rd.columns if x not in self.discrete_features
         ]
 
-        corr_rd = self.compute_mixed_correlation_matrix(rd)
-        corr_sd = self.compute_mixed_correlation_matrix(sd)
+        if self.corr_type == "mi":
+            corr_rd = self.mutual_information_matrix(rd)
+            corr_sd = self.mutual_information_matrix(sd)
+        elif self.corr_type == "correlation":
+            corr_rd = self.compute_mixed_correlation_matrix(rd)
+            corr_sd = self.compute_mixed_correlation_matrix(sd)
+        else:
+            raise NotImplementedError(f"Invalid correlation type: {self.corr_type}")
 
         if self.single_fig:
             fig, axs = plt.subplots(
@@ -318,6 +332,7 @@ class CorrelationMatrices:
             hm_rd = sns.heatmap(
                 corr_rd,
                 annot=True,
+                annot_kws={"size": 8},
                 fmt=".2f",
                 cmap="RdBu_r",
                 center=0,
@@ -335,6 +350,7 @@ class CorrelationMatrices:
             hm_sd = sns.heatmap(
                 corr_sd,
                 annot=True,
+                annot_kws={"size": 8},
                 fmt=".2f",
                 cmap="RdBu_r",
                 center=0,
@@ -449,6 +465,69 @@ class CorrelationMatrices:
 
         return numerator / denominator if denominator != 0 else 0
 
+    def preprocess_series(self, series, is_discrete):
+        if is_discrete:
+            return LabelEncoder().fit_transform(series.astype(str)), True
+        else:
+            return series.astype(float).values, False
+
+    def entropy(self, series, is_discrete):
+        """Estimate entropy in nats."""
+        if is_discrete:
+            encoded = LabelEncoder().fit_transform(series.astype(str))
+            return mutual_info_score(encoded, encoded)
+        else:
+            # For continuous vars, use MI(x, x) ≈ entropy (approximate)
+            return mutual_info_regression(series.values.reshape(-1, 1), series.values)[
+                0
+            ]
+
+    def mutual_information_matrix(self, df, normalize=True):
+        """
+        Compute pairwise (normalized) mutual information between all features in `df`.
+        `discrete_features` is a list or set of column names.
+        Returns a symmetric DataFrame.
+        """
+
+        cols = df.columns
+        n = len(cols)
+        mi_matrix = pd.DataFrame(np.zeros((n, n)), index=cols, columns=cols)
+
+        encoded = {}
+        is_discrete_map = {}
+        entropies = {}
+
+        for col in cols:
+            encoded[col], is_discrete_map[col] = self.preprocess_series(
+                df[col], col in self.discrete_features
+            )
+            entropies[col] = self.entropy(df[col], is_discrete_map[col])
+
+        for i, col_i in enumerate(cols):
+            xi = encoded[col_i].reshape(-1, 1)
+            for j, col_j in enumerate(cols[i:], i):
+                yj = encoded[col_j]
+                if is_discrete_map[col_j]:
+                    mi = mutual_info_classif(
+                        xi, yj, discrete_features=[is_discrete_map[col_i]]  # type: ignore
+                    )[0]
+                else:
+                    mi = mutual_info_regression(
+                        xi, yj, discrete_features=[is_discrete_map[col_i]]  # type: ignore
+                    )[0]
+
+                if normalize:
+                    h_i = entropies[col_i]
+                    h_j = entropies[col_j]
+                    denom = h_i + h_j
+                    norm_mi = 2 * mi / denom if denom > 0 else 0.0
+                    mi = norm_mi
+
+                mi_matrix.loc[col_i, col_j] = mi
+                mi_matrix.loc[col_j, col_i] = mi  # symmetric
+
+        return mi_matrix
+
 
 class AssociationRuleMining:
     data_requirement = "test"
@@ -473,6 +552,9 @@ class AssociationRuleMining:
 
         # find association rules
         rd_rules, sd_rules = self._rule_mining(rd), self._rule_mining(sd)
+
+        print(rd_rules)
+        print(sd_rules)
 
         # get precision/recall
         precision, recall = self._precision_recall(sd_rules, rd_rules)
